@@ -24,6 +24,7 @@ router = APIRouter(prefix="/api", tags=["breakdown"])
 class BreakdownRequest(BaseModel):
     project_id: int
     script_text: str
+    mode: str = "script"  # "script" (1st-AD breakdown) | "vibes" (story → coverage)
 
 
 class ApplyBreakdownRequest(BaseModel):
@@ -38,6 +39,8 @@ def breakdown(
     get_project_or_404(session, body.project_id)
     if not body.script_text.strip():
         raise HTTPException(status_code=400, detail="script_text is empty")
+    if body.mode not in ("script", "vibes"):
+        raise HTTPException(status_code=400, detail="mode must be 'script' or 'vibes'")
 
     try:
         config = get_llm_config(session, settings)
@@ -46,7 +49,7 @@ def breakdown(
 
     known_handles = [c.handle for c in session.exec(select(Character)).all()]
     try:
-        draft = breakdown_script(config, body.script_text, known_handles)
+        draft = breakdown_script(config, body.script_text, known_handles, mode=body.mode)
     except LLMNotConfiguredError as exc:  # pragma: no cover - config resolved above
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except LLMError as exc:

@@ -90,6 +90,25 @@ def test_breakdown_empty_script_400(client, llm, project_id):
     assert r.status_code == 400
 
 
+def test_breakdown_vibes_mode(client, llm, project_id):
+    configure_llm(client, llm)
+    llm.queue(json.dumps(VALID_DRAFT))
+    r = client.post(
+        "/api/breakdown",
+        json={"project_id": project_id, "script_text": "a story about a drifter", "mode": "vibes"},
+    )
+    assert r.status_code == 200, r.text
+    system = llm.requests[-1]["messages"][0]["content"]
+    assert "render-ready" in system  # vibes prompt, not the 1st-AD one
+    assert "@handle" in system
+
+    r = client.post(
+        "/api/breakdown",
+        json={"project_id": project_id, "script_text": "x", "mode": "freestyle"},
+    )
+    assert r.status_code == 400
+
+
 def test_breakdown_valid_json(client, app, llm, project_id):
     configure_llm(client, llm)
     add_character(app, "ava")

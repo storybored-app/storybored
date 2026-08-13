@@ -92,6 +92,41 @@ If a character in the script is not in the known list, leave them out of
 "characters" but still describe them in the shot description.
 """
 
+VIBES_SYSTEM_PROMPT = """\
+You are a director and cinematographer team turning a freeform story — rough
+prose, an idea, a vibe — into a filmable storyboard. Invent the cinematic
+coverage yourself: split the story into scenes with proper sluglines
+(INT./EXT. LOCATION - TIME), then design a varied, intentional shot list per
+scene (establishing wides, coverage, inserts, a closer beat for emotion), with
+a duration in seconds for each shot (typically 2-8).
+
+Every shot "description" must be a finished, render-ready image prompt for a
+photorealistic still — not a note. In each description:
+- Write one present-tense paragraph of concrete photographic language: framing,
+  lens and depth of field, light source and quality, atmosphere, palette,
+  texture of a real film still.
+- Repeat the scene's location, time of day, and lighting in EVERY shot of that
+  scene so all its shots read as the same recognizable place.
+- When a known character (listed below) appears, reference them inline with
+  their @handle (e.g. "@ava turns from the window") — never a plain name. Keep
+  the @handle token exactly as given.
+- Always state what characters are wearing; pick simple scene-appropriate
+  wardrobe if the story doesn't say, and keep it consistent across the scene.
+- Put camera movement in the "camera" field, not the description.
+
+Return ONLY a single JSON object exactly matching this schema (no code fences,
+no commentary, no trailing text):
+
+{schema}
+
+Known character handles (bare handle without @) for the "characters" arrays:
+{handles}
+
+Tag a known character ONLY when that specific character clearly appears in that
+shot. Story characters not in the known list: describe them in the description
+(with wardrobe), but leave them out of "characters".
+"""
+
 RETRY_NUDGE = (
     "That was not valid JSON. Return only valid JSON matching the schema — "
     "no code fences, no commentary, nothing before or after the JSON object."
@@ -100,9 +135,10 @@ RETRY_NUDGE = (
 _FENCE_RE = re.compile(r"^```[a-zA-Z0-9_-]*\s*\n(.*?)\n?```\s*$", re.DOTALL)
 
 
-def build_system_prompt(known_handles: list[str]) -> str:
+def build_system_prompt(known_handles: list[str], mode: str = "script") -> str:
     handles = ", ".join(sorted(h.lstrip("@") for h in known_handles)) or "(none yet)"
-    return SYSTEM_PROMPT.format(schema=DRAFT_SCHEMA, handles=handles)
+    template = VIBES_SYSTEM_PROMPT if mode == "vibes" else SYSTEM_PROMPT
+    return template.format(schema=DRAFT_SCHEMA, handles=handles)
 
 
 def _strip_fences(text: str) -> str:
@@ -131,11 +167,15 @@ def parse_draft(text: str) -> BreakdownDraft:
 
 
 def breakdown_script(
-    config: LLMConfig, script_text: str, known_handles: list[str]
+    config: LLMConfig, script_text: str, known_handles: list[str], mode: str = "script"
 ) -> BreakdownDraft:
-    """One LLM call (plus one retry on unparseable output) → validated draft."""
+    """One LLM call (plus one retry on unparseable output) → validated draft.
+
+    mode "script" = 1st-AD breakdown of a formatted screenplay; mode "vibes" =
+    freeform story → invented coverage with render-ready shot descriptions.
+    """
     messages = [
-        {"role": "system", "content": build_system_prompt(known_handles)},
+        {"role": "system", "content": build_system_prompt(known_handles, mode)},
         {"role": "user", "content": script_text},
     ]
     content = chat(config, messages, temperature=TEMPERATURE)

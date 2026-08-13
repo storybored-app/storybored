@@ -38,6 +38,7 @@ export function ScriptPage() {
   const { toast } = useToast();
 
   const [text, setText] = useState("");
+  const [mode, setMode] = useState<"script" | "vibes">("script");
   const [draft, setDraft] = useState<BreakdownDraft | null>(null);
   const [checked, setChecked] = useState<Checked | null>(null);
   const [llmUnconfigured, setLlmUnconfigured] = useState(false);
@@ -54,6 +55,7 @@ export function ScriptPage() {
       apiPost<BreakdownDraft>("/api/breakdown", {
         project_id: projectId,
         script_text: text,
+        mode,
       }),
     onSuccess: (d) => {
       if (!d?.scenes?.length) {
@@ -143,22 +145,53 @@ export function ScriptPage() {
         />
       ) : !draft ? (
         <div className="space-y-4">
+          <div className="flex gap-1 rounded-lg border border-line bg-ink-900 p-1 text-sm w-fit">
+            {(
+              [
+                ["script", "Screenplay"],
+                ["vibes", "Story vibes"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                onClick={() => setMode(value)}
+                className={`rounded-md px-3 py-1.5 transition-colors ${
+                  mode === value
+                    ? "bg-ink-850 font-medium text-paper"
+                    : "text-fog hover:text-mist"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <Field
-            label="Script"
-            hint="Paste a scene, a few pages, or the whole thing — StoryBored drafts scenes and shots for you to review."
+            label={mode === "script" ? "Script" : "Your story"}
+            hint={
+              mode === "script"
+                ? "Paste a scene, a few pages, or the whole thing — StoryBored drafts scenes and shots for you to review."
+                : "Just tell the story in your own words — StoryBored invents the scenes, coverage, and render-ready shot prompts."
+            }
           >
             <TextArea
               rows={16}
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder={"INT. LIGHTHOUSE — NIGHT\n\nThe keeper climbs the spiral stairs…"}
+              placeholder={
+                mode === "script"
+                  ? "INT. LIGHTHOUSE — NIGHT\n\nThe keeper climbs the spiral stairs…"
+                  : "A woman driving all night pulls into a diner at 2am. Someone she hoped never to see again is already in her booth…"
+              }
               className="font-mono text-[13px]"
             />
           </Field>
           <div className="flex items-center justify-end gap-3">
             {breakdown.isPending && (
               <span className="flex items-center gap-2 text-sm text-fog">
-                <Spinner size={14} /> Reading your script — this can take a minute…
+                <Spinner size={14} />
+                {mode === "script"
+                  ? "Reading your script — this can take a minute…"
+                  : "Directing your story — this can take a minute…"}
               </span>
             )}
             <Button
@@ -167,7 +200,7 @@ export function ScriptPage() {
               busy={breakdown.isPending}
               onClick={() => breakdown.mutate()}
             >
-              <Sparkles size={14} /> Break it down
+              <Sparkles size={14} /> {mode === "script" ? "Break it down" : "Board it"}
             </Button>
           </div>
         </div>
