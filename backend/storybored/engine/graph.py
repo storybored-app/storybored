@@ -12,7 +12,9 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 #: @handle mentions in shot descriptions (handles are stored lowercase, no @).
-MENTION_RE = re.compile(r"@([a-z0-9_-]+)")
+#: handles are stored lowercase, but users (and LLMs) type "@Nova" — match
+#: case-insensitively and normalize at lookup so the LoRA still injects
+MENTION_RE = re.compile(r"@([A-Za-z0-9_-]+)")
 
 #: manifest parameter type → python coercion applied before writing into the graph
 _COERCERS = {"int": int, "seed": int, "float": float}
@@ -26,6 +28,7 @@ def parse_mentions(text: str) -> list[str]:
     seen: set[str] = set()
     handles: list[str] = []
     for handle in MENTION_RE.findall(text or ""):
+        handle = handle.lower()
         if handle not in seen:
             seen.add(handle)
             handles.append(handle)
@@ -40,7 +43,7 @@ def substitute_mentions(text: str, characters: Mapping[str, Any]) -> str:
     """
 
     def repl(match: re.Match) -> str:
-        char = characters.get(match.group(1))
+        char = characters.get(match.group(1).lower())
         if char is None:
             return match.group(0)
         return f"{char.trigger} {char.class_word}".strip()

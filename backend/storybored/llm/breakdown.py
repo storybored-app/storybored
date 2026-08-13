@@ -106,7 +106,9 @@ photorealistic still — not a note. In each description:
   lens and depth of field, light source and quality, atmosphere, palette,
   texture of a real film still.
 - Repeat the scene's location, time of day, and lighting in EVERY shot of that
-  scene so all its shots read as the same recognizable place.
+  scene so all its shots read as the same recognizable place — describe the
+  place in natural words ("a lonely desert gas station at dawn"), never by
+  pasting the slugline text into the description.
 - When a known character (listed below) appears, reference them inline with
   their @handle (e.g. "@ava turns from the window") — never a plain name. Keep
   the @handle token exactly as given.
