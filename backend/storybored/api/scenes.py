@@ -1,0 +1,103 @@
+"""Scene endpoints: create under a project, update, delete, reorder."""
+
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.encoders import jsonable_encoder
+from sqlmodel import Session, select
+
+from storybored.api.projects import get_project_or_404, touch_project
+from storybored.db import get_session
+from storybored.models import Scene, Shot, ShotCharacter, Take
+from storybored.schemas import SceneCreate, SceneReorder, SceneUpdate
+
+router = APIRouter(prefix="/api", tags=["scenes"])
+
+
+def get_scene_or_404(session: Session, scene_id: int) -> Scene:
+    scene = session.get(Scene, scene_id)
+    if scene is None:
+        raise HTTPException(status_code=404, detail="scene not found")
+    return scene
+
+
+@router.post("/projects/{project_id}/scenes", status_code=201)
+def create_scene(
+    project_id: int, body: SceneCreate, session: Session = Depends(get_session)
+):
+    get_project_or_404(session, project_id)
+    existing = session.exec(select(Scene).where(Scene.project_id == project_id)).all()
+    scene = Scene(
+        project_id=project_id,
+        idx=len(existing),
+        title=body.title,
+        slugline=body.slugline,
+        description=body.description,
+    )
+    session.add(scene)
+    touch_project(session, project_id)
+    session.commit()
+    session.refresh(scene)
+    return jsonable_encoder(scene)
+
+
+@router.post("/projects/{project_id}/scenes/reorder")
+def reorder_scenes(
+    project_id: int, body: SceneReorder, session: Session = Depends(get_session)
+):
+    get_project_or_404(session, project_id)
+    scenes = {
+        s.id: s
+        for s in session.exec(select(Scene).where(Scene.project_id == project_id)).all()
+    }
+    unknown = [sid for sid in body.scene_ids if sid not in scenes]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"scene ids not in project: {unknown}")
+    ordered = [scenes[sid] for sid in body.scene_ids]
+    # any scenes not listed keep their relative order, after the listed ones
+    ordered += [s for s in scenes.values() if s.id not in set(body.scene_ids)]
+    for idx, scene in enumerate(ordered):
+        scene.idx = idx
+        session.add(scene)
+    touch_project(session, project_id)
+    session.commit()
+    return {"scene_ids": [s.id for s in ordered]}
+
+
+@router.patch("/scenes/{scene_id}")
+def update_scene(scene_id: int, body: SceneUpdate, session: Session = Depends(get_session)):
+    scene = get_scene_or_404(session, scene_id)
+    for key, value in body.model_dump(exclude_unset=True).items():
+        setattr(scene, key, value)
+    session.add(scene)
+    touch_project(session, scene.project_id)
+    session.commit()
+    session.refresh(scene)
+    return jsonable_encoder(scene)
+
+
+@router.delete("/scenes/{scene_id}", status_code=204)
+def delete_scene(scene_id: int, session: Session = Depends(get_session)):
+    scene = get_scene_or_404(session, scene_id)
+    shot_ids = session.exec(select(Shot.id).where(Shot.scene_id == scene_id)).all()
+    if shot_ids:
+        for take in session.exec(select(Take).where(Take.shot_id.in_(shot_ids))):  # type: ignore[attr-defined]
+            session.delete(take)
+        for link in session.exec(
+            select(ShotCharacter).where(ShotCharacter.shot_id.in_(shot_ids))  # type: ignore[attr-defined]
+        ):
+            session.delete(link)
+        for shot in session.exec(select(Shot).where(Shot.id.in_(shot_ids))):  # type: ignore[attr-defined]
+            session.delete(shot)
+    project_id = scene.project_id
+    session.delete(scene)
+    # compact remaining scene indexes
+    remaining = session.exec(
+        select(Scene)
+        .where(Scene.project_id == project_id, Scene.id != scene_id)
+        .order_by(Scene.idx)  # type: ignore[arg-type]
+    ).all()
+    for idx, s in enumerate(remaining):
+        s.idx = idx
+        session.add(s)
+    touch_project(session, project_id)
+    session.commit()
+    return None

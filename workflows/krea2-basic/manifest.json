@@ -1,0 +1,25 @@
+{
+  "id": "krea2-basic",
+  "name": "Krea 2 — Basic",
+  "kind": "image",
+  "description": "Lean 8-step turbo-distilled Krea 2: base model plus the turbo distill LoRA only. Fast, style-neutral stills — a good default when character LoRAs should dominate the look.",
+  "graph": "graph.json",
+  "parameters": [
+    {"key": "prompt", "label": "Prompt", "type": "prompt", "node": "6", "input": "text"},
+    {"key": "seed", "label": "Seed", "type": "seed", "node": "3", "input": "seed"},
+    {"key": "width", "label": "Width", "type": "int", "node": "5", "input": "width", "default": 1728},
+    {"key": "height", "label": "Height", "type": "int", "node": "5", "input": "height", "default": 1152},
+    {"key": "steps", "label": "Steps", "type": "int", "node": "3", "input": "steps", "default": 8}
+  ],
+  "output_node": "9",
+  "character_injection": {
+    "after_node": "lora_distill",
+    "disable_nodes": []
+  },
+  "required_models": {
+    "UNETLoader.unet_name": ["krea2_raw_fp8_scaled.safetensors"],
+    "CLIPLoader.clip_name": ["qwen3vl_4b_fp8_scaled.safetensors"],
+    "VAELoader.vae_name": ["qwen_image_vae.safetensors"],
+    "LoraLoader.lora_name": ["(Krea 2) 8-Step Turbo Distill Rank 64 V2026.1.safetensors"]
+  }
+}

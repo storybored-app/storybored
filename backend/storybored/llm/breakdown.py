@@ -1,0 +1,155 @@
+# OWNED-BY: llm-agent
+"""Script → scenes/shots draft breakdown via an OpenAI-compatible LLM.
+
+The system prompt casts the model as a 1st AD and embeds the draft JSON
+schema plus the known character handles. Parsing is defensive: strip code
+fences, json.loads, and on failure retry once with a "return only valid
+JSON" nudge. Nothing here touches the database — the draft is ephemeral.
+"""
+
+import json
+import re
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from storybored.llm.client import LLMConfig, LLMError, chat
+
+TEMPERATURE = 0.3
+
+# -- draft schema (mirrors docs/CONTRACT.md) ---------------------------------
+
+
+class DraftShot(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    description: str = ""
+    shot_type: str = ""
+    camera: str = ""
+    dialogue: str = ""
+    duration_s: float = 4.0
+    characters: list[str] = Field(default_factory=list)
+
+
+class DraftScene(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = ""
+    slugline: str = ""
+    shots: list[DraftShot] = Field(default_factory=list)
+
+
+class BreakdownDraft(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    scenes: list[DraftScene] = Field(default_factory=list)
+
+
+DRAFT_SCHEMA = json.dumps(
+    {
+        "scenes": [
+            {
+                "title": "short scene title",
+                "slugline": "INT./EXT. LOCATION - DAY/NIGHT",
+                "shots": [
+                    {
+                        "description": "what the camera sees, one or two sentences",
+                        "shot_type": "WIDE | MED | CU | ECU | OTS | INSERT | ...",
+                        "camera": "movement/lens notes, e.g. 'slow push in'",
+                        "dialogue": "spoken line(s) covered by this shot, or empty",
+                        "duration_s": 4.0,
+                        "characters": ["handle"],
+                    }
+                ],
+            }
+        ]
+    },
+    indent=2,
+)
+
+SYSTEM_PROMPT = """\
+You are a seasoned 1st Assistant Director breaking a script down into a shot list
+for a storyboard. Split the script into scenes (use sluglines when present) and
+propose a concise, filmable shot list per scene: vary shot sizes, cover dialogue,
+keep descriptions visual and concrete, and estimate a duration in seconds for
+each shot (typically 2-8).
+
+Return ONLY a single JSON object exactly matching this schema (no code fences,
+no commentary, no trailing text):
+
+{schema}
+
+Known character handles you may use in each shot's "characters" array (use the
+bare handle without @):
+{handles}
+
+Tag a known character ONLY when that specific character clearly appears in that
+shot (named or unmistakably present in its action/dialogue). If none of the known
+characters clearly appear in a shot, return "characters": [] for that shot — do
+NOT tag a character just because it is the only known one. Character tagging is
+best-effort: when in doubt, leave the shot untagged.
+
+If a character in the script is not in the known list, leave them out of
+"characters" but still describe them in the shot description.
+"""
+
+RETRY_NUDGE = (
+    "That was not valid JSON. Return only valid JSON matching the schema — "
+    "no code fences, no commentary, nothing before or after the JSON object."
+)
+
+_FENCE_RE = re.compile(r"^```[a-zA-Z0-9_-]*\s*\n(.*?)\n?```\s*$", re.DOTALL)
+
+
+def build_system_prompt(known_handles: list[str]) -> str:
+    handles = ", ".join(sorted(h.lstrip("@") for h in known_handles)) or "(none yet)"
+    return SYSTEM_PROMPT.format(schema=DRAFT_SCHEMA, handles=handles)
+
+
+def _strip_fences(text: str) -> str:
+    text = text.strip()
+    match = _FENCE_RE.match(text)
+    if match:
+        return match.group(1).strip()
+    return text
+
+
+def parse_draft(text: str) -> BreakdownDraft:
+    """Best-effort parse: as-is → fence-stripped → outermost {...} slice."""
+    candidates = [text.strip(), _strip_fences(text)]
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end > start:
+        candidates.append(text[start : end + 1])
+    last_error: Exception = LLMError("empty LLM response")
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            return BreakdownDraft.model_validate(json.loads(candidate))
+        except (json.JSONDecodeError, ValidationError) as exc:
+            last_error = exc
+    raise last_error
+
+
+def breakdown_script(
+    config: LLMConfig, script_text: str, known_handles: list[str]
+) -> BreakdownDraft:
+    """One LLM call (plus one retry on unparseable output) → validated draft."""
+    messages = [
+        {"role": "system", "content": build_system_prompt(known_handles)},
+        {"role": "user", "content": script_text},
+    ]
+    content = chat(config, messages, temperature=TEMPERATURE)
+    try:
+        return parse_draft(content)
+    except (json.JSONDecodeError, ValidationError):
+        retry_messages = messages + [
+            {"role": "assistant", "content": content},
+            {"role": "user", "content": RETRY_NUDGE},
+        ]
+        content = chat(config, retry_messages, temperature=TEMPERATURE)
+        try:
+            return parse_draft(content)
+        except (json.JSONDecodeError, ValidationError) as exc:
+            raise LLMError(
+                "The model did not return a valid breakdown draft (invalid JSON after retry)."
+            ) from exc

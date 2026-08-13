@@ -1,0 +1,148 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  /* Ink — the near-black charcoal ground */
+  --color-ink-950: #0a0a0c;
+  --color-ink-900: #101014;
+  --color-ink-850: #15151a;
+  --color-ink-800: #1a1a20;
+  --color-ink-700: #232329;
+  --color-ink-600: #2e2e36;
+
+  /* Lines & text */
+  --color-line: #26262d;
+  --color-line-bright: #34343d;
+  --color-fog: #8b8a94;
+  --color-mist: #b7b6be;
+  --color-paper: #ece9e2;
+
+  /* One warm accent */
+  --color-amber-450: #f0b429;
+  --color-amber-350: #f7c948;
+  --color-amber-550: #de911d;
+
+  /* Status */
+  --color-status-draft: #6b7280;
+  --color-status-queued: #f0b429;
+  --color-status-generated: #5b9bd8;
+  --color-status-approved: #57b87b;
+  --color-status-failed: #e0655f;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-ink-950);
+  color: var(--color-paper);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv11", "ss01";
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-amber-450) 30%, transparent);
+}
+
+/* Slim, quiet scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-600) transparent;
+}
+*::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-ink-600);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes sb-pulse-ring {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-amber-450) 55%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+}
+.sb-pulse {
+  animation: sb-pulse-ring 1.6s ease-in-out infinite;
+}
+
+@keyframes sb-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+.sb-skeleton {
+  background: linear-gradient(
+    100deg,
+    var(--color-ink-800) 40%,
+    var(--color-ink-700) 50%,
+    var(--color-ink-800) 60%
+  );
+  background-size: 200% 100%;
+  animation: sb-shimmer 1.8s linear infinite;
+}
+
+@keyframes sb-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.sb-toast-in {
+  animation: sb-toast-in 0.18s ease-out;
+}
+
+@keyframes sb-drawer-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.sb-drawer-in {
+  animation: sb-drawer-in 0.2s ease-out;
+}
+
+@keyframes sb-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.sb-fade-in {
+  animation: sb-fade-in 0.15s ease-out;
+}
+
+/* Film-slate stripe motif for empty states / headers */
+.sb-slate-stripes {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--color-ink-700) 0 10px,
+    transparent 10px 20px
+  );
+}

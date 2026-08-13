@@ -1,0 +1,10 @@
+data/
+.env
+node_modules/
+dist/
+__pycache__/
+.venv/
+*.safetensors
+.pytest_cache/
+.ruff_cache/
+*.egg-info/

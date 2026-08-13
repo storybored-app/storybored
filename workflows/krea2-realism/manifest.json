@@ -1,0 +1,34 @@
+{
+  "id": "krea2-realism",
+  "name": "Krea 2 — Realism stack",
+  "kind": "image",
+  "description": "8-step turbo-distilled Krea 2 with a community realism LoRA stack: filter bypass, realism, detailer, snapshot and realism-engine LoRAs chained for photographic stills.",
+  "graph": "graph.json",
+  "parameters": [
+    {"key": "prompt", "label": "Prompt", "type": "prompt", "node": "6", "input": "text"},
+    {"key": "seed", "label": "Seed", "type": "seed", "node": "3", "input": "seed"},
+    {"key": "width", "label": "Width", "type": "int", "node": "5", "input": "width", "default": 1728},
+    {"key": "height", "label": "Height", "type": "int", "node": "5", "input": "height", "default": 1152},
+    {"key": "steps", "label": "Steps", "type": "int", "node": "3", "input": "steps", "default": 8}
+  ],
+  "output_node": "9",
+  "character_injection": {
+    "after_node": "lora_7",
+    "disable_nodes": ["lora_3", "lora_4"]
+  },
+  "required_models": {
+    "UNETLoader.unet_name": ["krea2_raw_fp8_scaled.safetensors"],
+    "CLIPLoader.clip_name": ["qwen3vl_4b_fp8_scaled.safetensors"],
+    "VAELoader.vae_name": ["qwen_image_vae.safetensors"],
+    "LoraLoader.lora_name": [
+      "krea2filterbypass3.safetensors",
+      "Krea2-realism-V2.safetensors",
+      "Detailer-KREA2.safetensors",
+      "bloomgirls-ultrarealism-krea2_4k.safetensors",
+      "lenovo_krea2.safetensors",
+      "(Krea 2) 8-Step Turbo Distill Rank 64 V2026.1.safetensors",
+      "RealisticSnapshotKrea2.safetensors",
+      "realism_engine_krea2_v3.1.safetensors"
+    ]
+  }
+}

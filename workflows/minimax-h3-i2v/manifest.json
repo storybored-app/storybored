@@ -1,0 +1,24 @@
+{
+  "id": "minimax-h3-i2v",
+  "name": "MiniMax H3 — Image to Video",
+  "kind": "video",
+  "description": "Animates an approved still into a short clip (~5s at the default length) with synchronized generated audio. 12-step res_multistep sampling at 864x576, 24fps.",
+  "graph": "graph.json",
+  "parameters": [
+    {"key": "prompt", "label": "Motion prompt", "type": "prompt", "node": "6", "input": "prompt"},
+    {"key": "first_frame", "label": "First frame", "type": "image", "node": "5", "input": "image"},
+    {"key": "length", "label": "Length (frames, 24fps)", "type": "int", "node": "6", "input": "length", "default": 124},
+    {"key": "width", "label": "Width", "type": "int", "node": "6", "input": "width", "default": 864},
+    {"key": "height", "label": "Height", "type": "int", "node": "6", "input": "height", "default": 576},
+    {"key": "seed", "type": "seed", "node": "10", "input": "noise_seed"}
+  ],
+  "output_node": "16",
+  "required_models": {
+    "UNETLoader.unet_name": ["minimax_h3_fl2va_pruned_nvfp4.safetensors"],
+    "CLIPLoader.clip_name": ["qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"],
+    "VAELoader.vae_name": [
+      "minimax_h3_video_vae_fp16.safetensors",
+      "minimax_h3_audio_vae_fp32.safetensors"
+    ]
+  }
+}
