@@ -10,7 +10,7 @@ import time
 import imageio_ffmpeg
 import pytest
 from PIL import Image
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from storybored.models import Project, Scene, Shot, Take
 
@@ -138,6 +138,40 @@ def test_animatic_e2e(client, settings, board):
     listing = client.get(f"/api/projects/{project_id}/exports").json()
     assert [e["file_path"] for e in listing] == [result["file_path"]]
     assert client.get(f"/api/media/{result['file_path']}").status_code == 200
+
+
+def test_animatic_scene_scope_and_title_cards(client, settings, board, app):
+    project_id = board["project_id"]
+    # a scene from another (or missing) project is rejected up front
+    assert (
+        client.post(
+            f"/api/projects/{project_id}/animatic", json={"scene_id": 424242}
+        ).status_code
+        == 404
+    )
+
+    with Session(app.state.engine, expire_on_commit=False) as session:
+        scene = session.exec(select(Scene).where(Scene.project_id == project_id)).first()
+
+    r = client.post(
+        f"/api/projects/{project_id}/animatic",
+        json={"scene_id": scene.id, "title_cards": True},
+    )
+    assert r.status_code == 200
+    job = wait_for(client, r.json()["job_id"], {"done", "failed"})
+    assert job["status"] == "done", job["error"]
+
+    result = json.loads(job["result_json"])
+    assert result["shots"] == 3  # cards don't count as shots
+    assert result["scene_id"] == scene.id
+    assert result["title_cards"] is True
+    assert f"animatic_s{scene.idx + 1}_" in result["file_path"]
+
+    out = settings.data_path / result["file_path"]
+    assert out.is_file() and out.stat().st_size > 0
+    # 2s title card + 1.0 + 0.5 + 1.0 of shots
+    duration, info = probe(out)
+    assert abs(duration - 4.5) <= 0.4, f"duration {duration} vs 4.5\n{info[-500:]}"
 
 
 def test_animatic_empty_project_fails_cleanly(client, app):

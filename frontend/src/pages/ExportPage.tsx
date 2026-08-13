@@ -20,6 +20,8 @@ export function ExportPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [animaticJobId, setAnimaticJobId] = useState<number | null>(null);
+  const [titleCards, setTitleCards] = useState(true);
+  const [animaticScene, setAnimaticScene] = useState<number | "all">("all");
 
   const { data, isLoading, isError, refetch } = useQuery<BoardProject>({
     queryKey: ["project", projectId],
@@ -76,7 +78,11 @@ export function ExportPage() {
   });
 
   const exportAnimatic = useMutation({
-    mutationFn: () => apiPost<{ job_id: number }>(`/api/projects/${projectId}/animatic`),
+    mutationFn: () =>
+      apiPost<{ job_id: number }>(`/api/projects/${projectId}/animatic`, {
+        title_cards: titleCards,
+        scene_id: animaticScene === "all" ? undefined : animaticScene,
+      }),
     onSuccess: (r) => {
       setAnimaticJobId(r.job_id);
       toast("Cutting your animatic…", "success");
@@ -200,9 +206,35 @@ export function ExportPage() {
               <div>
                 <h2 className="text-sm font-semibold">Animatic</h2>
                 <p className="mt-1 text-xs leading-relaxed text-fog">
-                  One MP4 of your whole board, in order — finished videos where you have
-                  them, held stills where you don't.
+                  One MP4 of your board, in order — finished videos where you have
+                  them, held stills where you don't. Export the whole thing or a
+                  single scene.
                 </p>
+                <div className="mt-3 flex flex-wrap items-center gap-4">
+                  <select
+                    value={animaticScene === "all" ? "all" : String(animaticScene)}
+                    onChange={(e) =>
+                      setAnimaticScene(e.target.value === "all" ? "all" : Number(e.target.value))
+                    }
+                    className="h-8 rounded-md border border-line bg-ink-900 px-2 text-xs text-mist"
+                  >
+                    <option value="all">Whole board</option>
+                    {(data.scenes ?? []).map((scene, i) => (
+                      <option key={scene.id} value={scene.id}>
+                        Scene {i + 1}: {scene.title || scene.slugline || "Untitled"}
+                      </option>
+                    ))}
+                  </select>
+                  <label className="flex items-center gap-2 text-xs text-fog">
+                    <input
+                      type="checkbox"
+                      checked={titleCards}
+                      onChange={(e) => setTitleCards(e.target.checked)}
+                      className="h-4 w-4 accent-[#f0b429]"
+                    />
+                    Scene title cards
+                  </label>
+                </div>
               </div>
               <Button
                 variant="primary"

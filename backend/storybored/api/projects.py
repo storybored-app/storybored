@@ -51,12 +51,43 @@ def board_payload(session: Session, project: Project) -> dict:
     return data
 
 
+def project_thumbnail(session: Session, project_id: int) -> str | None:
+    """Board-order thumbnail: first scene/shot whose picked still is done;
+    falls back to the newest finished image take anywhere in the project."""
+    picked = session.exec(
+        select(Take)
+        .join(Shot, Shot.picked_take_id == Take.id)  # type: ignore[arg-type]
+        .join(Scene, Scene.id == Shot.scene_id)  # type: ignore[arg-type]
+        .where(Scene.project_id == project_id)
+        .where(Take.status == "done")
+        .order_by(Scene.idx, Shot.idx)  # type: ignore[arg-type]
+    ).first()
+    if picked is None:
+        picked = session.exec(
+            select(Take)
+            .join(Shot, Shot.id == Take.shot_id)  # type: ignore[arg-type]
+            .join(Scene, Scene.id == Shot.scene_id)  # type: ignore[arg-type]
+            .where(Scene.project_id == project_id)
+            .where(Take.status == "done")
+            .where(Take.kind == "image")
+            .order_by(Take.id.desc())  # type: ignore[attr-defined]
+        ).first()
+    if picked is None:
+        return None
+    return picked.thumb_path or picked.file_path
+
+
 @router.get("/projects")
 def list_projects(session: Session = Depends(get_session)):
     projects = session.exec(
         select(Project).order_by(Project.updated_at.desc())  # type: ignore[attr-defined]
     ).all()
-    return jsonable_encoder(projects)
+    out = []
+    for project in projects:
+        data = jsonable_encoder(project)
+        data["thumbnail_path"] = project_thumbnail(session, project.id)
+        out.append(data)
+    return out
 
 
 @router.post("/projects", status_code=201)

@@ -5,6 +5,9 @@ Per docs/CONTRACT.md:
 - ffmpeg = imageio-ffmpeg's bundled static binary (never assume system ffmpeg).
 - Board order (scene.idx, then shot.idx). Per shot: video take if present,
   else picked image take, else SKIP (skips are collected into result_json).
+- Optional payload keys: `scene_id` limits the export to one scene;
+  `title_cards` inserts a 2s Pillow-rendered card (title + slugline) before
+  each scene's shots.
 - Normalize every segment: scale+pad to the project resolution (16:9 → 1920x1080),
   24 fps CFR, yuv420p, 48 kHz stereo AAC audio.
 - Respect shot.duration_s: longer clips are trimmed, shorter clips freeze their
@@ -29,6 +32,14 @@ from storybored.models import Project, Scene, Shot, Take
 
 FPS = 24
 AUDIO_RATE = 48000
+TITLE_CARD_S = 2.0
+
+#: candidate title-card fonts, first hit wins (Pillow falls back to its default)
+FONT_CANDIDATES = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+    "/System/Library/Fonts/Helvetica.ttc",
+]
 
 #: project aspect_ratio → output resolution (fallback 16:9)
 RESOLUTIONS = {
@@ -147,6 +158,40 @@ async def _encode_clip_segment(
     await _run_ffmpeg(args)
 
 
+def _load_font(size: int):
+    from PIL import ImageFont
+
+    for candidate in FONT_CANDIDATES:
+        if Path(candidate).is_file():
+            try:
+                return ImageFont.truetype(candidate, size)
+            except OSError:
+                continue
+    return ImageFont.load_default(size=size)
+
+
+def _render_title_card(
+    dest: Path, title: str, slugline: str, width: int, height: int
+) -> None:
+    """Dark scene title card: big centered title, slugline in muted gray below."""
+    from PIL import Image, ImageDraw
+
+    img = Image.new("RGB", (width, height), "#101014")
+    draw = ImageDraw.Draw(img)
+    title_font = _load_font(max(28, height // 12))
+    slug_font = _load_font(max(18, height // 24))
+
+    def centered(text, font, y, fill):
+        left, _top, right, _bottom = draw.textbbox((0, 0), text, font=font)
+        draw.text(((width - (right - left)) / 2, y), text, font=font, fill=fill)
+
+    y_title = height / 2 - height // 12
+    centered(title or "Untitled scene", title_font, y_title, "#e8e8ee")
+    if slugline:
+        centered(slugline.upper(), slug_font, y_title + height // 8, "#8b8b98")
+    img.save(dest)
+
+
 def _concat_escape(seg: Path) -> str:
     """Escape a path for a single-quoted ffmpeg concat list line ('→'\\'')."""
     return seg.as_posix().replace("'", r"'\''")
@@ -168,20 +213,31 @@ async def _concat_segments(segments: list[Path], dest: Path, workdir: Path) -> N
 async def animatic(job, ctx):
     payload = json.loads(job.payload_json or "{}")
     project_id = payload["project_id"]
+    scene_id = payload.get("scene_id")
+    title_cards = bool(payload.get("title_cards"))
     settings = ctx.settings
 
     # -- collect board-order sources --
-    entries: list[tuple[int, str, Path, float]] = []  # (shot_id, kind, src, duration_s)
+    # (shot_id, kind, src, duration_s); kind "card" carries (title, slugline) in src
+    entries: list[tuple[int | None, str, object, float]] = []
     skipped: list[dict] = []
+    scene_label = ""
     with ctx.session_factory() as session:
         project = session.get(Project, project_id)
         if project is None:
             raise RuntimeError(f"project {project_id} not found")
         width, height = RESOLUTIONS.get(project.aspect_ratio, RESOLUTIONS["16:9"])
-        scenes = session.exec(
-            select(Scene).where(Scene.project_id == project_id).order_by(Scene.idx)
-        ).all()
+        scene_q = select(Scene).where(Scene.project_id == project_id).order_by(Scene.idx)
+        if scene_id is not None:
+            scene_q = scene_q.where(Scene.id == scene_id)
+        scenes = session.exec(scene_q).all()
+        if scene_id is not None and not scenes:
+            raise RuntimeError(f"scene {scene_id} not found in project {project_id}")
+        if scene_id is not None:
+            scene_label = f"s{scenes[0].idx + 1}_"
         for scene in scenes:
+            if title_cards:
+                entries.append((None, "card", (scene.title, scene.slugline), TITLE_CARD_S))
             shots = session.exec(
                 select(Shot).where(Shot.scene_id == scene.id).order_by(Shot.idx)
             ).all()
@@ -217,12 +273,12 @@ async def animatic(job, ctx):
                 duration_s = 4.0 if raw_duration is None else float(raw_duration)
                 entries.append((shot.id, kind, src, max(0.1, duration_s)))
 
-    if not entries:
+    if not any(kind != "card" for _, kind, _, _ in entries):
         raise RuntimeError("no shots with a video take or picked still — nothing to export")
 
     export_dir = settings.exports_path / str(project_id)
     export_dir.mkdir(parents=True, exist_ok=True)
-    out_path = export_dir / f"animatic_{job.id}.mp4"
+    out_path = export_dir / f"animatic_{scene_label}{job.id}.mp4"
 
     workdir = Path(tempfile.mkdtemp(prefix=f"animatic_{job.id}_", dir=settings.data_path))
     try:
@@ -230,9 +286,14 @@ async def animatic(job, ctx):
         total = len(entries) + 1
         for i, (shot_id, kind, src, duration_s) in enumerate(entries):
             ctx.raise_if_cancelled()
-            ctx.update_progress(i / total, f"rendering shot {i + 1} of {len(entries)}")
+            ctx.update_progress(i / total, f"rendering segment {i + 1} of {len(entries)}")
             seg = workdir / f"seg_{i:04d}.mp4"
-            if kind == "video":
+            if kind == "card":
+                title, slugline = src
+                card_png = workdir / f"card_{i:04d}.png"
+                _render_title_card(card_png, title, slugline, width, height)
+                await _encode_still_segment(card_png, seg, duration_s, width, height)
+            elif kind == "video":
                 await _encode_clip_segment(src, seg, duration_s, width, height)
             else:
                 await _encode_still_segment(src, seg, duration_s, width, height)
@@ -245,11 +306,14 @@ async def animatic(job, ctx):
         shutil.rmtree(workdir, ignore_errors=True)
 
     duration_total = sum(d for _, _, _, d in entries)
+    shot_entries = [e for e in entries if e[1] != "card"]
     ctx.update_progress(1.0, "animatic ready")
     return {
         "file_path": str(out_path.relative_to(settings.data_path)),
         "duration_s": round(duration_total, 3),
-        "shots": len(entries),
-        "shot_ids": [e[0] for e in entries],
+        "shots": len(shot_entries),
+        "shot_ids": [e[0] for e in shot_entries],
+        "scene_id": scene_id,
+        "title_cards": title_cards,
         "skipped": skipped,
     }

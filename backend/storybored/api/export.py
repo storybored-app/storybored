@@ -4,7 +4,7 @@
 - POST /api/shots/{id}/render-video      {workflow_id?, motion_prompt?} → {job_id}
 - POST /api/projects/{id}/render-videos  queue video_gen for every approved shot
                                          lacking a video take → {job_ids}
-- POST /api/projects/{id}/animatic       → {job_id}
+- POST /api/projects/{id}/animatic       {scene_id?, title_cards?} → {job_id}
 - GET  /api/projects/{id}/exports        → finished export files (newest first)
 """
 
@@ -86,12 +86,30 @@ def render_videos(
     return {"job_ids": job_ids, "queued": len(job_ids)}
 
 
+class AnimaticBody(BaseModel):
+    scene_id: int | None = None
+    title_cards: bool = False
+
+
 @router.post("/projects/{project_id}/animatic")
 def export_animatic(
-    project_id: int, request: Request, session: Session = Depends(get_session)
+    project_id: int,
+    request: Request,
+    body: AnimaticBody | None = None,
+    session: Session = Depends(get_session),
 ):
     get_project_or_404(session, project_id)
-    job = request.app.state.runner.enqueue("animatic", {"project_id": project_id})
+    body = body or AnimaticBody()
+    if body.scene_id is not None:
+        scene = session.get(Scene, body.scene_id)
+        if scene is None or scene.project_id != project_id:
+            raise HTTPException(status_code=404, detail="scene not found in this project")
+    payload = {"project_id": project_id}
+    if body.scene_id is not None:
+        payload["scene_id"] = body.scene_id
+    if body.title_cards:
+        payload["title_cards"] = True
+    job = request.app.state.runner.enqueue("animatic", payload)
     return {"job_id": job.id}
 
 

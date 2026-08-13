@@ -20,6 +20,8 @@ export interface Project {
   aspect_ratio: string;
   created_at?: string;
   updated_at?: string;
+  /** board-order thumbnail of the first picked still (list endpoint only) */
+  thumbnail_path?: string | null;
 }
 
 export interface Take {

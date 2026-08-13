@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { Clapperboard, Film, Plus, Trash2 } from "lucide-react";
-import { apiDelete, apiGet, apiPost } from "../lib/api";
+import { apiDelete, apiGet, apiPost, mediaUrl } from "../lib/api";
 import type { Project } from "../lib/types";
 import { HealthBanner } from "../components/HealthBanner";
 import { EmptyState, ErrorState, Skeleton } from "../components/EmptyState";
@@ -148,32 +148,42 @@ export function ProjectsPage() {
             <Link
               key={p.id}
               to={`/p/${p.id}`}
-              className="group relative overflow-hidden rounded-xl border border-line bg-ink-900 p-5 transition-colors hover:border-line-bright"
+              className="group relative overflow-hidden rounded-xl border border-line bg-ink-900 transition-colors hover:border-line-bright"
             >
-              <div className="sb-slate-stripes absolute inset-x-0 top-0 h-1.5 opacity-30 transition-opacity group-hover:opacity-60" />
-              <div className="flex items-start justify-between">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-ink-850">
-                  <Film size={17} className="text-amber-450" />
-                </div>
+              <div className="sb-slate-stripes absolute inset-x-0 top-0 z-10 h-1.5 opacity-30 transition-opacity group-hover:opacity-60" />
+              <div className="relative aspect-video w-full overflow-hidden bg-ink-850">
+                {p.thumbnail_path ? (
+                  <img
+                    src={mediaUrl(p.thumbnail_path)}
+                    alt=""
+                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center">
+                    <Film size={26} className="text-fog/50" />
+                  </div>
+                )}
                 <button
                   onClick={(e) => {
                     e.preventDefault();
                     if (window.confirm(`Delete "${p.title}"? This can't be undone.`))
                       remove.mutate(p.id);
                   }}
-                  className="rounded p-1 text-transparent transition-colors hover:!text-status-failed group-hover:text-fog"
+                  className="absolute right-2 top-2 rounded bg-ink-900/70 p-1 text-transparent backdrop-blur-sm transition-colors hover:!text-status-failed group-hover:text-fog"
                   title="Delete project"
                 >
                   <Trash2 size={15} />
                 </button>
               </div>
-              <h2 className="mt-4 truncate text-base font-semibold text-paper">{p.title}</h2>
+              <div className="p-5 pt-4">
+              <h2 className="truncate text-base font-semibold text-paper">{p.title}</h2>
               <p className="mt-1 line-clamp-2 min-h-4 text-sm text-fog">{p.description}</p>
               <div className="mt-4 flex items-center gap-2 text-[11px] text-fog">
                 <span className="rounded-full border border-line px-2 py-0.5">{p.aspect_ratio}</span>
                 {p.updated_at && (
                   <span>updated {new Date(p.updated_at).toLocaleDateString()}</span>
                 )}
+              </div>
               </div>
             </Link>
           ))}

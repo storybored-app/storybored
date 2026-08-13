@@ -153,8 +153,10 @@ def _train_progress(log_file: Path, output_dir: Path, job_name: str) -> tuple[fl
         progress = int(step) / total_i
     elif output_dir.is_dir():
         best = 0
-        ckpt_re = re.compile(re.escape(job_name) + r"-(\d+)\.safetensors$")
-        for path in output_dir.glob(f"{job_name}-*.safetensors"):
+        # ai-toolkit names step checkpoints "<job>_000002500.safetensors"
+        # (underscore + zero-padded), NOT "<job>-2500"
+        ckpt_re = re.compile(re.escape(job_name) + r"_(\d+)\.safetensors$")
+        for path in output_dir.glob(f"{job_name}_*.safetensors"):
             m = ckpt_re.search(path.name)
             if m:
                 best = max(best, int(m.group(1)))
@@ -466,6 +468,15 @@ def recover_orphan_trains(runner) -> list[dict]:
                     runner.bus.publish("job", runner.job_dict(job))
                 actions.append({"job_name": job_name, "action": "finalized"})
             else:
+                # pid died without a final checkpoint (crash or host shutdown):
+                # the handler set the character to "training" on spawn and the
+                # shutdown-cancel path never rolls it back, which 409s any
+                # retrain — reset it so the wizard can train again (ai-toolkit
+                # auto-resumes from the newest checkpoint in the output dir).
+                if character_id is not None:
+                    _set_character(
+                        runner.session_factory, runner.bus, character_id, status="dataset"
+                    )
                 actions.append({"job_name": job_name, "action": "stale"})
         pidfile.unlink(missing_ok=True)
     return actions

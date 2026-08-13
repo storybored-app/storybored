@@ -44,6 +44,23 @@ def make_thumbnail(src: Path, dest: Path, size: int = THUMB_PX) -> None:
         img.save(dest, format="PNG")
 
 
+def _maybe_set_character_thumbnails(ctx, character_ids: list[int], thumb_rel: str) -> None:
+    """First finished still featuring a character becomes its thumbnail (only
+    when it has none yet — a deliberate upload or earlier take always wins)."""
+    if not character_ids or not thumb_rel:
+        return
+    with ctx.session_factory() as session:
+        for cid in character_ids:
+            char = session.get(Character, cid)
+            if char is None or char.thumbnail_path:
+                continue
+            char.thumbnail_path = thumb_rel
+            session.add(char)
+            session.commit()
+            session.refresh(char)
+            ctx.publish("character", jsonable_encoder(char))
+
+
 def _first_image(entry: dict, output_node: str | None) -> dict:
     """The first image ref from the history outputs, preferring output_node."""
     outputs = entry.get("outputs") or {}
@@ -186,6 +203,11 @@ async def image_gen(job, ctx):
             )
             done_ids.append(take.id)
             _mark_shot_generated(ctx, shot_id)
+            _maybe_set_character_thumbnails(
+                ctx,
+                [c.id for c in rows],
+                str(thumb.relative_to(settings.data_path)),
+            )
         except (JobCancelled, ComfyCancelled, asyncio.CancelledError) as exc:
             _update_take(ctx, take.id, status="failed", error="cancelled")
             if prompt_id is not None:
