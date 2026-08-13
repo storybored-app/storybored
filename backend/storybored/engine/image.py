@@ -40,6 +40,18 @@ from storybored.models import Character, Scene, Shot, Take
 THUMB_PX = 384
 SEED_MAX = 2**32
 
+#: default prompt for generated character portraits: identity front and center,
+#: framed for the square card, wardrobe stated (LoRAs trained on unclothed data
+#: default to nudity when a prompt omits clothing).
+CHARACTER_PORTRAIT_PROMPT = (
+    "portrait photograph of @{handle} wearing a plain dark crew-neck t-shirt, "
+    "the t-shirt collar and sleeves clearly visible on the shoulders, head and "
+    "shoulders framing, centered and facing the camera with a relaxed natural "
+    "expression, plain softly lit studio backdrop, soft even light, sharp focus "
+    "on the face, photorealistic"
+)
+PORTRAIT_SIZE = 1024
+
 
 def make_thumbnail(src: Path, dest: Path, size: int = THUMB_PX) -> None:
     with Image.open(src) as img:
@@ -247,3 +259,99 @@ async def image_gen(job, ctx):
     if not done_ids:
         raise RuntimeError(f"all {n_takes} take(s) failed: {last_error}")
     return {"take_ids": done_ids, "failed": failed}
+
+
+@register("character_thumb")
+async def character_thumb(job, ctx):
+    """Render a portrait of one character and set it as their thumbnail.
+
+    Payload: {"character_id", "workflow_id", "prompt"?}. One square render
+    through the same LoRA pipeline as shots (engine overrides, style LoRAs,
+    the character's own LoRA), saved under media/characters/{id}/.
+    """
+    payload = json.loads(job.payload_json or "{}")
+    character_id = payload.get("character_id")
+    workflow_id = payload.get("workflow_id") or ""
+    settings = ctx.settings
+
+    with ctx.session_factory() as session:
+        char = session.get(Character, character_id)
+        if char is None:
+            raise RuntimeError(f"character {character_id} not found")
+        comfy_url = effective_setting(session, settings, "comfyui_url")
+        style_loras = parse_style_loras(effective_setting(session, settings, "style_loras"))
+        engine_loras = parse_engine_loras(
+            effective_setting(session, settings, "engine_loras")
+        ).get(workflow_id, [])
+
+    pack = registry.get_pack(settings, workflow_id)
+    if pack is None:
+        raise RuntimeError(f"unknown workflow '{workflow_id}'")
+    manifest = pack.manifest
+
+    prompt_text = str(payload.get("prompt") or "").strip() or CHARACTER_PORTRAIT_PROMPT.format(
+        handle=char.handle
+    )
+    prompt_text = substitute_mentions(prompt_text, {char.handle: char})
+    params = {
+        "prompt": prompt_text,
+        "seed": random.randrange(SEED_MAX),
+        "width": PORTRAIT_SIZE,
+        "height": PORTRAIT_SIZE,
+    }
+
+    graph = apply_parameters(pack.load_graph(), manifest, params)
+    apply_engine_lora_overrides(graph, engine_loras)
+    injection = manifest.get("character_injection")
+    inject_characters(graph, injection, [char] if char.lora_name else [])
+    inject_style_loras(graph, injection, style_loras)
+    inject_style_loras(
+        graph, injection, added_engine_loras(engine_loras), id_prefix="engine_lora_"
+    )
+    set_filename_prefix(graph, f"storybored/charthumb_{character_id}_{job.id}")
+
+    client = ComfyClient(comfy_url)
+    ctx.update_progress(progress=0.0, detail="portrait: submitting")
+    prompt_id = await client.submit(graph)
+    try:
+        def on_status(pos):
+            if pos is None or pos == 0:
+                ctx.update_progress(detail="portrait: rendering")
+            else:
+                ctx.update_progress(detail=f"portrait: engine queue position {pos}")
+
+        entry = await client.wait_for(
+            prompt_id, on_status=on_status, should_cancel=ctx.cancelled
+        )
+    except (JobCancelled, ComfyCancelled, asyncio.CancelledError) as exc:
+        try:
+            await client.cancel(prompt_id)
+        except BaseException:  # noqa: BLE001 - best effort during cancellation
+            pass
+        raise JobCancelled(str(exc)) from exc
+
+    image_ref = _first_image(entry, manifest.get("output_node"))
+    dest_dir = settings.media_path / "characters" / str(character_id)
+    dest = dest_dir / f"portrait_{job.id}.png"
+    await client.download(
+        image_ref.get("filename", ""),
+        image_ref.get("subfolder", ""),
+        image_ref.get("type", "output"),
+        dest,
+    )
+    thumb = dest_dir / f"portrait_{job.id}_thumb.png"
+    make_thumbnail(dest, thumb)
+
+    thumb_rel = str(thumb.relative_to(settings.data_path))
+    with ctx.session_factory() as session:
+        row = session.get(Character, character_id)
+        if row is not None:
+            row.thumbnail_path = thumb_rel
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            ctx.publish("character", jsonable_encoder(row))
+    return {
+        "thumbnail_path": thumb_rel,
+        "file_path": str(dest.relative_to(settings.data_path)),
+    }

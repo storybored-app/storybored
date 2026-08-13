@@ -693,6 +693,19 @@ function EditCharacterModal({ character, onClose }: { character: Character; onCl
     onError: (e: Error) => toast(e.message, "error"),
   });
 
+  const genThumb = useMutation({
+    mutationFn: () =>
+      apiPost(`/api/characters/${character.id}/generate-thumbnail`, {}),
+    onSuccess: () => {
+      toast(
+        `Rendering a portrait of ${character.name} — the card updates when it's done.`,
+        "success",
+      );
+      onClose();
+    },
+    onError: (e: Error) => toast(e.message, "error"),
+  });
+
   return (
     <Modal title={`Edit ${character.name}`} onClose={onClose}>
       <div className="space-y-4">
@@ -714,13 +727,27 @@ function EditCharacterModal({ character, onClose }: { character: Character; onCl
         <Field label="Notes">
           <TextArea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Field>
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
+        <div className="flex items-center justify-between gap-2">
+          <Button
+            busy={genThumb.isPending}
+            disabled={!character.lora_name}
+            onClick={() => genThumb.mutate()}
+            title={
+              character.lora_name
+                ? "Render a fresh portrait with this character's LoRA and use it as the card thumbnail"
+                : "Needs a LoRA — train or import one first"
+            }
+          >
+            <ImagePlus size={14} /> Generate thumbnail
           </Button>
-          <Button variant="primary" busy={save.isPending} onClick={() => save.mutate()}>
-            Save
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button variant="primary" busy={save.isPending} onClick={() => save.mutate()}>
+              Save
+            </Button>
+          </div>
         </div>
       </div>
     </Modal>

@@ -29,7 +29,11 @@ from storybored.models import Job, Shot, Take
 log = logging.getLogger("storybored.jobs")
 
 #: job type → ComfyUI model family (jobs absent here need no ComfyUI mode switch)
-JOB_FAMILY: dict[str, str] = {"image_gen": "image", "video_gen": "video"}
+JOB_FAMILY: dict[str, str] = {
+    "image_gen": "image",
+    "character_thumb": "image",
+    "video_gen": "video",
+}
 
 LANES = ("gpu",)
 

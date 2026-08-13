@@ -17,6 +17,7 @@ from sqlmodel import Session, select
 
 from storybored.api.settings_api import effective_setting
 from storybored.db import get_session
+from storybored.engine import registry
 from storybored.engine.comfy_client import ComfyClient, ComfyError
 from storybored.models import Character, ShotCharacter
 
@@ -239,3 +240,61 @@ def upload_thumbnail(
     session.refresh(char)
     _publish(request, char)
     return jsonable_encoder(char)
+
+
+class ThumbnailGenRequest(BaseModel):
+    workflow_id: str | None = None
+    prompt: str | None = None
+
+
+@router.post("/characters/{character_id}/generate-thumbnail")
+async def generate_thumbnail(
+    character_id: int,
+    request: Request,
+    body: ThumbnailGenRequest | None = None,
+    session: Session = Depends(get_session),
+):
+    """Enqueue a character_thumb job: render a portrait of this character with
+    their LoRA and set it as the card thumbnail. Body optional {workflow_id, prompt}."""
+    body = body or ThumbnailGenRequest()
+    char = _get_character_or_404(session, character_id)
+    if not char.lora_name:
+        raise HTTPException(
+            status_code=400,
+            detail="this character has no LoRA yet — train or import one first",
+        )
+    settings = request.app.state.settings
+    packs = registry.load_packs(settings)
+    workflow_id = body.workflow_id or effective_setting(
+        session, settings, "default_image_workflow"
+    )
+    if not workflow_id:
+        workflow_id = registry.default_workflow_id(packs, kind="image")
+    if not workflow_id:
+        raise HTTPException(status_code=503, detail="no image workflow packs installed")
+    pack = packs.get(workflow_id)
+    if pack is None:
+        raise HTTPException(status_code=404, detail=f"unknown workflow '{workflow_id}'")
+    if pack.manifest.get("kind", "image") != "image":
+        raise HTTPException(
+            status_code=400, detail=f"workflow '{workflow_id}' is not an image workflow"
+        )
+    comfy_url = effective_setting(session, settings, "comfyui_url")
+    availability = await registry.pack_availability(pack, ComfyClient(comfy_url))
+    if availability["error"]:
+        raise HTTPException(
+            status_code=503,
+            detail=f"engine unreachable — cannot render a portrait: {availability['error']}",
+        )
+    if not availability["available"]:
+        missing = ", ".join(availability["missing_models"])
+        raise HTTPException(
+            status_code=409,
+            detail=f"workflow '{workflow_id}' is missing models: {missing}",
+        )
+
+    payload = {"character_id": character_id, "workflow_id": workflow_id}
+    if body.prompt:
+        payload["prompt"] = body.prompt
+    job = request.app.state.runner.enqueue("character_thumb", payload)
+    return {"job_id": job.id}

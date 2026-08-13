@@ -246,6 +246,51 @@ def test_workflows_payload_reports_stack_and_default(client, fake_comfy):  # noq
     assert basic["loras_modified"] is False
 
 
+def test_character_thumbnail_generation(client, app, settings, fake_comfy):  # noqa: F811
+    hero = make_hero(client)
+
+    r = client.post(f"/api/characters/{hero['id']}/generate-thumbnail", json={})
+    assert r.status_code == 200, r.text
+    job = wait_job(client, r.json()["job_id"])
+    assert job["status"] == "done", job
+
+    result = json.loads(job["result_json"])
+    expected_thumb = f"media/characters/{hero['id']}/portrait_{job['id']}_thumb.png"
+    assert result["thumbnail_path"] == expected_thumb
+    assert (settings.data_path / result["thumbnail_path"]).is_file()
+    assert (settings.data_path / result["file_path"]).is_file()
+
+    char = client.get("/api/characters").json()[0]
+    assert char["thumbnail_path"] == expected_thumb
+    assert client.get(f"/api/media/{expected_thumb}").status_code == 200
+
+    # submitted graph: square portrait, default prompt with the trigger phrase,
+    # and the character's LoRA spliced in
+    (prompt_id,) = fake_comfy.state.order
+    graph = fake_comfy.state.prompts[prompt_id]
+    assert graph["5"]["inputs"]["width"] == 1024
+    assert graph["5"]["inputs"]["height"] == 1024
+    prompt_text = graph["6"]["inputs"]["text"]
+    assert prompt_text.startswith("portrait photograph of zxqhero woman")
+    assert "wearing" in prompt_text
+    assert any(
+        n["inputs"].get("lora_name") == "characters/hero_v1.safetensors"
+        for n in graph.values()
+        if n["class_type"] == "LoraLoader"
+    )
+
+
+def test_character_thumbnail_requires_lora(client, fake_comfy):  # noqa: F811
+    r = client.post(
+        "/api/characters",
+        json={"name": "Extra", "handle": "extra", "trigger": "zxextra"},
+    )
+    assert r.status_code == 201, r.text
+    r = client.post(f"/api/characters/{r.json()['id']}/generate-thumbnail", json={})
+    assert r.status_code == 400
+    assert "no LoRA" in r.json()["detail"]
+
+
 def test_pinned_seed_repeats(client, fake_comfy):  # noqa: F811
     _, _, shot = make_board(client, description="a quiet hallway")
     r = client.post(

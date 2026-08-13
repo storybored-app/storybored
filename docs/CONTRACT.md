@@ -113,6 +113,10 @@ Characters:
 - `GET/POST /api/characters` · `PATCH/DELETE /api/characters/{id}`
 - `GET /api/characters/available-loras` → list from ComfyUI /object_info LoraLoader enum
 - `POST /api/characters/import-lora` multipart (.safetensors → COMFY_LORAS_DIR) or {lora_name}
+- `POST /api/characters/{id}/generate-thumbnail {workflow_id?, prompt?}` → {job_id};
+  requires lora_name; character_thumb job renders one square (1024²) portrait through
+  the full LoRA pipeline (default prompt: head-and-shoulders, concrete wardrobe stated)
+  and sets character.thumbnail_path (media/characters/{id}/portrait_{job}.png + _thumb)
 - Wizard: `POST /api/characters/wizard` multipart images[] and/or {image_urls:[…]} +
   {name, handle, trigger, class_word} → creates character(status=dataset) + dataset_prep job.
   `GET /api/training/{character_id}` → prep report (report.md text), sample paths, job states.
