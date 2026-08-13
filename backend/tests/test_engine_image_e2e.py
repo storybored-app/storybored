@@ -128,6 +128,52 @@ def test_image_gen_e2e(client, app, settings, fake_comfy):  # noqa: F811
         assert len(links) == 1
 
 
+def test_style_loras_setting_injected_into_render(client, fake_comfy):  # noqa: F811
+    make_hero(client)
+    r = client.put(
+        "/api/settings",
+        json={
+            "values": {
+                "style_loras": json.dumps(
+                    [
+                        {"lora_name": "styles/noir.safetensors", "strength": 0.6, "enabled": True},
+                        {"lora_name": "styles/vhs.safetensors", "strength": 1.0, "enabled": False},
+                    ]
+                )
+            }
+        },
+    )
+    assert r.status_code == 200, r.text
+
+    _, _, shot = make_board(client)
+    r = client.post(
+        f"/api/shots/{shot['id']}/generate",
+        json={"workflow_id": "krea2-realism", "n_takes": 1},
+    )
+    job = wait_job(client, r.json()["job_id"])
+    assert job["status"] == "done", job
+
+    (prompt_id,) = fake_comfy.state.order
+    graph = fake_comfy.state.prompts[prompt_id]
+    by_lora = {
+        n["inputs"]["lora_name"]: n
+        for n in graph.values()
+        if n["class_type"] == "LoraLoader"
+    }
+    # disabled entry never reaches the graph
+    assert "styles/vhs.safetensors" not in by_lora
+    # chain: lora_7 -> style -> char -> sage/6
+    style = by_lora["styles/noir.safetensors"]
+    char_node = by_lora["characters/hero_v1.safetensors"]
+    assert style["inputs"]["model"] == ["lora_7", 0]
+    assert style["inputs"]["strength_model"] == 0.6
+    style_id = next(k for k, v in graph.items() if v is style)
+    assert char_node["inputs"]["model"] == [style_id, 0]
+    char_id = next(k for k, v in graph.items() if v is char_node)
+    assert graph["sage"]["inputs"]["model"] == [char_id, 0]
+    assert graph["6"]["inputs"]["clip"] == [char_id, 1]
+
+
 def test_pinned_seed_repeats(client, fake_comfy):  # noqa: F811
     _, _, shot = make_board(client, description="a quiet hallway")
     r = client.post(

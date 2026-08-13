@@ -141,6 +141,13 @@ export interface SettingsMap {
   effective?: Record<string, string | boolean>;
 }
 
+/** One entry in the `style_loras` setting (persisted as a JSON string). */
+export interface StyleLora {
+  lora_name: string;
+  strength: number;
+  enabled: boolean;
+}
+
 // LLM breakdown draft
 export interface DraftShot {
   description: string;

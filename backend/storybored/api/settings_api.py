@@ -4,6 +4,8 @@ A `setting` row's value wins over the corresponding env var when set — used
 for LLM config and workflow defaults that users edit in the Settings screen.
 """
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session, select
 
@@ -23,7 +25,37 @@ OVERRIDABLE = {
     "lora_factory_dir",
     "default_image_workflow",
     "default_video_workflow",
+    "style_loras",
 }
+
+
+def _validate_style_loras(raw: str) -> None:
+    """style_loras is a JSON list of {lora_name, strength?, enabled?} — reject
+    anything else at write time so renders never see a malformed setting."""
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="style_loras must be valid JSON") from None
+    if not isinstance(data, list):
+        raise HTTPException(status_code=400, detail="style_loras must be a JSON list")
+    for item in data:
+        if not isinstance(item, dict) or not str(item.get("lora_name", "")).strip():
+            raise HTTPException(
+                status_code=400, detail="each style LoRA entry needs a lora_name"
+            )
+        strength = item.get("strength", 1.0)
+        if isinstance(strength, bool) or not isinstance(strength, (int, float)):
+            raise HTTPException(
+                status_code=400, detail="style LoRA strength must be a number"
+            )
+        if not -5 <= strength <= 5:
+            raise HTTPException(
+                status_code=400, detail="style LoRA strength must be between -5 and 5"
+            )
+        if not isinstance(item.get("enabled", True), bool):
+            raise HTTPException(
+                status_code=400, detail="style LoRA enabled must be true or false"
+            )
 
 
 def _is_secret_key(key: str) -> bool:
@@ -80,6 +112,8 @@ def put_settings(
             detail=f"unknown setting key(s): {', '.join(unknown)}",
         )
     for key, value in body.values.items():
+        if key == "style_loras" and value:
+            _validate_style_loras(value)
         row = session.get(Setting, key)
         if value is None or value == "":
             if row is not None:

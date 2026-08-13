@@ -24,7 +24,9 @@ from storybored.engine.comfy_client import ComfyCancelled, ComfyClient, ComfyErr
 from storybored.engine.graph import (
     apply_parameters,
     inject_characters,
+    inject_style_loras,
     parse_mentions,
+    parse_style_loras,
     set_filename_prefix,
     substitute_mentions,
 )
@@ -125,6 +127,7 @@ async def image_gen(job, ctx):
         )
         by_handle = {c.handle: c for c in rows}
         comfy_url = effective_setting(session, settings, "comfyui_url")
+        style_loras = parse_style_loras(effective_setting(session, settings, "style_loras"))
 
     pack = registry.get_pack(settings, workflow_id)
     if pack is None:
@@ -167,6 +170,9 @@ async def image_gen(job, ctx):
         try:
             graph = apply_parameters(base_graph, manifest, params)
             inject_characters(graph, manifest.get("character_injection"), characters)
+            # After characters on purpose: styles splice in at the same point,
+            # landing between the base stack and the character LoRAs.
+            inject_style_loras(graph, manifest.get("character_injection"), style_loras)
             set_filename_prefix(graph, f"storybored/take_{take.id}")
 
             ctx.update_progress(progress=i / n_takes, detail=f"{label}: submitting")

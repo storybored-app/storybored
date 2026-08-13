@@ -12,7 +12,9 @@ from storybored.engine import registry
 from storybored.engine.graph import (
     apply_parameters,
     inject_characters,
+    inject_style_loras,
     parse_mentions,
+    parse_style_loras,
     set_filename_prefix,
     substitute_mentions,
 )
@@ -143,6 +145,76 @@ def test_injection_on_basic_pack():
     assert graph[nid]["inputs"]["model"] == ["lora_distill", 0]
     assert graph["sage"]["inputs"]["model"] == [nid, 0]
     assert graph["6"]["inputs"]["clip"] == [nid, 1]
+
+
+# -- style LoRA injection --------------------------------------------------------
+
+
+def test_style_loras_land_between_stack_and_characters():
+    manifest, graph = load_pack("krea2-realism")
+    injection = manifest["character_injection"]
+    (char_node,) = inject_characters(graph, injection, [char()])
+    (style_node,) = inject_style_loras(
+        graph, injection, [{"lora_name": "styles/noir.safetensors", "strength": 0.6}]
+    )
+    # chain: lora_7 -> style -> char -> {sage, 6}
+    assert graph[style_node]["inputs"]["model"] == ["lora_7", 0]
+    assert graph[style_node]["inputs"]["clip"] == ["lora_7", 1]
+    assert graph[char_node]["inputs"]["model"] == [style_node, 0]
+    assert graph[char_node]["inputs"]["clip"] == [style_node, 1]
+    assert graph["sage"]["inputs"]["model"] == [char_node, 0]
+    assert graph["6"]["inputs"]["clip"] == [char_node, 1]
+    assert graph[style_node]["inputs"]["lora_name"] == "styles/noir.safetensors"
+    assert graph[style_node]["inputs"]["strength_model"] == 0.6
+    assert graph[style_node]["inputs"]["strength_clip"] == 0.6
+
+
+def test_style_loras_without_characters():
+    manifest, graph = load_pack("krea2-realism")
+    s1, s2 = inject_style_loras(
+        graph,
+        manifest["character_injection"],
+        [
+            {"lora_name": "styles/noir.safetensors", "strength": 0.6},
+            {"lora_name": "styles/anamorphic.safetensors", "strength": 1.0},
+        ],
+    )
+    assert graph[s1]["inputs"]["model"] == ["lora_7", 0]
+    assert graph[s2]["inputs"]["model"] == [s1, 0]
+    assert graph["sage"]["inputs"]["model"] == [s2, 0]
+    assert graph["6"]["inputs"]["clip"] == [s2, 1]
+    # style LoRAs never touch disable_nodes — that's a character-identity concern
+    assert graph["lora_3"]["inputs"]["strength_model"] == 1
+
+
+def test_style_loras_noop_when_empty():
+    manifest, graph = load_pack("krea2-realism")
+    before = json.dumps(graph, sort_keys=True)
+    assert inject_style_loras(graph, manifest["character_injection"], []) == []
+    assert inject_style_loras(graph, manifest["character_injection"], [{"lora_name": ""}]) == []
+    assert inject_style_loras(graph, None, [{"lora_name": "x.safetensors"}]) == []
+    assert json.dumps(graph, sort_keys=True) == before
+
+
+def test_parse_style_loras():
+    raw = json.dumps(
+        [
+            {"lora_name": "a.safetensors", "strength": 0.5, "enabled": True},
+            {"lora_name": "b.safetensors", "enabled": False},
+            {"lora_name": "c.safetensors"},
+            {"lora_name": "", "strength": 1.0},
+            {"lora_name": "d.safetensors", "strength": "bad"},
+            "not a dict",
+        ]
+    )
+    assert parse_style_loras(raw) == [
+        {"lora_name": "a.safetensors", "strength": 0.5},
+        {"lora_name": "c.safetensors", "strength": 1.0},
+        {"lora_name": "d.safetensors", "strength": 1.0},
+    ]
+    assert parse_style_loras("") == []
+    assert parse_style_loras("not json") == []
+    assert parse_style_loras('{"lora_name": "x"}') == []
 
 
 def test_set_filename_prefix():

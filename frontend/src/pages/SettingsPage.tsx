@@ -1,15 +1,16 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, FlaskConical, Save } from "lucide-react";
+import { ChevronDown, ChevronRight, FlaskConical, Plus, Save, X } from "lucide-react";
 import { apiGet, apiPut } from "../lib/api";
 import {
   healthDetail,
   healthOk,
   type Health,
   type SettingsMap,
+  type StyleLora,
   type WorkflowManifest,
 } from "../lib/types";
-import { Badge, Button, Field, Input } from "../components/ui";
+import { Badge, Button, Field, Input, Select } from "../components/ui";
 import { ErrorState, Skeleton } from "../components/EmptyState";
 import { useToast } from "../lib/toast";
 
@@ -27,6 +28,23 @@ function StatusDot({ ok }: { ok: boolean }) {
 function getSetting(s: SettingsMap | undefined, key: string): string {
   const v = s?.effective?.[key.toLowerCase()];
   return typeof v === "string" ? v : "";
+}
+
+/** Parse the style_loras setting (JSON string) defensively. */
+function parseStyleLoras(raw: string): StyleLora[] {
+  try {
+    const data = JSON.parse(raw || "[]");
+    if (!Array.isArray(data)) return [];
+    return data
+      .filter((s) => s && typeof s.lora_name === "string" && s.lora_name)
+      .map((s) => ({
+        lora_name: s.lora_name,
+        strength: typeof s.strength === "number" ? s.strength : 1,
+        enabled: s.enabled !== false,
+      }));
+  } catch {
+    return [];
+  }
 }
 
 function WorkflowRow({ wf }: { wf: WorkflowManifest }) {
@@ -126,6 +144,8 @@ export function SettingsPage() {
   const [llmKey, setLlmKey] = useState("");
   const [llmKeyDirty, setLlmKeyDirty] = useState(false);
   const [llmModel, setLlmModel] = useState("");
+  const [styleLoras, setStyleLoras] = useState<StyleLora[]>([]);
+  const [newStyleLora, setNewStyleLora] = useState("");
   const [loaded, setLoaded] = useState(false);
 
   const keySet = settings?.effective?.llm_api_key_set === true;
@@ -135,9 +155,40 @@ export function SettingsPage() {
       setComfyUrl(getSetting(settings, "comfyui_url"));
       setLlmUrl(getSetting(settings, "llm_base_url"));
       setLlmModel(getSetting(settings, "llm_model"));
+      setStyleLoras(parseStyleLoras(getSetting(settings, "style_loras")));
       setLoaded(true);
     }
   }, [settings, loaded]);
+
+  const { data: availableLoras } = useQuery<string[]>({
+    queryKey: ["available-loras"],
+    queryFn: () => apiGet<string[]>("/api/characters/available-loras"),
+    retry: 1,
+  });
+
+  const saveStyleLoras = useMutation({
+    mutationFn: (next: StyleLora[]) =>
+      apiPut("/api/settings", {
+        values: { style_loras: next.length ? JSON.stringify(next) : "" },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
+    onError: (e: Error) => toast(e.message, "error"),
+  });
+
+  // Toggles / add / remove persist immediately; strength persists on blur.
+  const commitStyleLoras = (next: StyleLora[]) => {
+    setStyleLoras(next);
+    saveStyleLoras.mutate(next);
+  };
+
+  const addStyleLora = () => {
+    if (!newStyleLora) return;
+    commitStyleLoras([
+      ...styleLoras,
+      { lora_name: newStyleLora, strength: 1.0, enabled: true },
+    ]);
+    setNewStyleLora("");
+  };
 
   const saveEngine = useMutation({
     mutationFn: () =>
@@ -319,6 +370,94 @@ export function SettingsPage() {
             </div>
           </div>
         )}
+      </section>
+
+      {/* style LoRAs */}
+      <section className="mb-6 rounded-xl border border-line bg-ink-900/40 p-5">
+        <h2 className="text-sm font-semibold">Style LoRAs</h2>
+        <p className="mt-1 text-xs text-fog">
+          Extra look/style LoRAs layered into every still you render. Flip them on and
+          off any time — characters keep the final say on identity.
+        </p>
+        <div className="mt-4 space-y-2">
+          {styleLoras.length === 0 && (
+            <p className="text-xs text-fog/80">
+              None yet — pick a LoRA below to try a look on your next render.
+            </p>
+          )}
+          {styleLoras.map((s, i) => (
+            <div
+              key={s.lora_name}
+              className="flex items-center gap-3 rounded-md border border-line/60 bg-ink-900 px-3 py-2"
+            >
+              <input
+                type="checkbox"
+                checked={s.enabled}
+                onChange={(e) =>
+                  commitStyleLoras(
+                    styleLoras.map((x, j) =>
+                      j === i ? { ...x, enabled: e.target.checked } : x,
+                    ),
+                  )
+                }
+                className="h-4 w-4 accent-amber-450"
+                title={s.enabled ? "On — applied to renders" : "Off"}
+              />
+              <span
+                className={`min-w-0 flex-1 truncate font-mono text-xs ${
+                  s.enabled ? "text-paper" : "text-fog"
+                }`}
+              >
+                {s.lora_name}
+              </span>
+              <Input
+                type="number"
+                step={0.05}
+                min={-5}
+                max={5}
+                value={s.strength}
+                onChange={(e) =>
+                  setStyleLoras(
+                    styleLoras.map((x, j) =>
+                      j === i ? { ...x, strength: Number(e.target.value) || 0 } : x,
+                    ),
+                  )
+                }
+                onBlur={() => saveStyleLoras.mutate(styleLoras)}
+                className="h-8 w-24"
+                title="Strength"
+              />
+              <button
+                onClick={() => commitStyleLoras(styleLoras.filter((_, j) => j !== i))}
+                className="text-fog transition-colors hover:text-status-failed"
+                title="Remove"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ))}
+          <div className="flex items-center gap-2 pt-1">
+            <Select value={newStyleLora} onChange={(e) => setNewStyleLora(e.target.value)}>
+              <option value="">
+                {availableLoras
+                  ? availableLoras.length
+                    ? "Choose a LoRA…"
+                    : "No LoRAs found on the engine"
+                  : "Loading LoRA list…"}
+              </option>
+              {(availableLoras ?? [])
+                .filter((name) => !styleLoras.some((s) => s.lora_name === name))
+                .map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+            </Select>
+            <Button onClick={addStyleLora} disabled={!newStyleLora}>
+              <Plus size={14} /> Add
+            </Button>
+          </div>
+        </div>
       </section>
 
       {/* workflow packs */}

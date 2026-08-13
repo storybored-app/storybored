@@ -7,6 +7,7 @@ All functions operate on ComfyUI **API-format** graphs:
 """
 
 import copy
+import json
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -82,29 +83,19 @@ def apply_parameters(graph: dict, manifest: dict, params: Mapping[str, Any]) -> 
     return result
 
 
-def inject_characters(
-    graph: dict, injection: Mapping[str, Any] | None, characters: Sequence[Any]
+def _splice_lora_chain(
+    graph: dict, tail: str, id_prefix: str, entries: Sequence[tuple[str, float]]
 ) -> list[str]:
-    """Splice one LoraLoader per character into the graph (mutates it).
+    """Splice a chain of LoraLoaders after ``tail`` (mutates the graph).
 
     Per the contract: each new node's model/clip inputs take the current tail
     node's outputs 0/1, then every OTHER node that referenced
-    ``[tail, 0]``/``[tail, 1]`` is rewired to the new node. Characters chain
-    in sequence. While at least one character LoRA is active, every node in
-    ``disable_nodes`` gets strength_model/strength_clip zeroed.
-
-    Returns the injected node ids (in chain order).
+    ``[tail, 0]``/``[tail, 1]`` is rewired to the new node. Entries chain in
+    sequence. Returns the injected node ids (in chain order).
     """
-    active = [c for c in characters if getattr(c, "lora_name", "")]
-    if injection is None or not active:
-        return []
-    tail = str(injection.get("after_node", ""))
-    if tail not in graph:
-        raise ValueError(f"character_injection.after_node '{tail}' is not in the graph")
-
     injected: list[str] = []
-    for i, char in enumerate(active):
-        node_id = f"char_lora_{i}"
+    for i, (lora_name, strength) in enumerate(entries):
+        node_id = f"{id_prefix}{i}"
         while node_id in graph:
             node_id += "_"
         # Rewire all existing referents of the current tail's outputs 0/1.
@@ -118,11 +109,10 @@ def inject_characters(
                     and value[1] in (0, 1)
                 ):
                     inputs[name] = [node_id, value[1]]
-        strength = float(getattr(char, "lora_strength", 1.0))
         graph[node_id] = {
             "class_type": "LoraLoader",
             "inputs": {
-                "lora_name": char.lora_name,
+                "lora_name": lora_name,
                 "strength_model": strength,
                 "strength_clip": strength,
                 "model": [tail, 0],
@@ -131,6 +121,32 @@ def inject_characters(
         }
         injected.append(node_id)
         tail = node_id
+    return injected
+
+
+def inject_characters(
+    graph: dict, injection: Mapping[str, Any] | None, characters: Sequence[Any]
+) -> list[str]:
+    """Splice one LoraLoader per character into the graph (mutates it).
+
+    While at least one character LoRA is active, every node in
+    ``disable_nodes`` gets strength_model/strength_clip zeroed.
+
+    Returns the injected node ids (in chain order).
+    """
+    active = [c for c in characters if getattr(c, "lora_name", "")]
+    if injection is None or not active:
+        return []
+    tail = str(injection.get("after_node", ""))
+    if tail not in graph:
+        raise ValueError(f"character_injection.after_node '{tail}' is not in the graph")
+
+    injected = _splice_lora_chain(
+        graph,
+        tail,
+        "char_lora_",
+        [(c.lora_name, float(getattr(c, "lora_strength", 1.0))) for c in active],
+    )
 
     for node_id in injection.get("disable_nodes") or []:
         node = graph.get(str(node_id))
@@ -138,6 +154,59 @@ def inject_characters(
             node.setdefault("inputs", {})["strength_model"] = 0
             node["inputs"]["strength_clip"] = 0
     return injected
+
+
+def parse_style_loras(raw: str) -> list[dict]:
+    """Parse the ``style_loras`` setting (JSON string) into enabled entries.
+
+    Returns ``[{"lora_name": str, "strength": float}, ...]`` keeping only
+    enabled entries with a lora_name. Malformed JSON or entries yield [] /
+    are skipped — a bad setting must never sink a render.
+    """
+    try:
+        data = json.loads(raw or "[]")
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    entries: list[dict] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("lora_name", "")).strip()
+        if not name or item.get("enabled", True) is False:
+            continue
+        try:
+            strength = float(item.get("strength", 1.0))
+        except (TypeError, ValueError):
+            strength = 1.0
+        entries.append({"lora_name": name, "strength": strength})
+    return entries
+
+
+def inject_style_loras(
+    graph: dict, injection: Mapping[str, Any] | None, styles: Sequence[Mapping[str, Any]]
+) -> list[str]:
+    """Splice style LoRAs right after the pack's injection point (mutates it).
+
+    ``styles`` comes from parse_style_loras. Style LoRAs reuse the pack's
+    ``character_injection.after_node`` splice point; when called after
+    inject_characters they land between the pack's base stack and the
+    character LoRAs, so character identity keeps the final say.
+
+    Returns the injected node ids (in chain order).
+    """
+    entries = [
+        (str(s.get("lora_name", "")), float(s.get("strength", 1.0)))
+        for s in styles
+        if s.get("lora_name")
+    ]
+    if injection is None or not entries:
+        return []
+    tail = str(injection.get("after_node", ""))
+    if tail not in graph:
+        raise ValueError(f"character_injection.after_node '{tail}' is not in the graph")
+    return _splice_lora_chain(graph, tail, "style_lora_", entries)
 
 
 def set_filename_prefix(graph: dict, prefix: str) -> None:

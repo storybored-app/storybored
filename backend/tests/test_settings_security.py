@@ -23,6 +23,30 @@ def test_get_settings_redacts_api_key(client):
     assert "llm_api_key" not in body["effective"]
 
 
+def test_put_settings_validates_style_loras(client):
+    ok = '[{"lora_name": "styles/noir.safetensors", "strength": 0.6, "enabled": true}]'
+    r = client.put("/api/settings", json={"values": {"style_loras": ok}})
+    assert r.status_code == 200, r.text
+    assert client.get("/api/settings").json()["overrides"]["style_loras"] == ok
+
+    for bad in (
+        "not json",
+        '{"lora_name": "x"}',  # not a list
+        '[{"strength": 1.0}]',  # missing lora_name
+        '[{"lora_name": "x", "strength": "high"}]',  # non-numeric strength
+        '[{"lora_name": "x", "strength": 99}]',  # out of range
+        '[{"lora_name": "x", "enabled": "yes"}]',  # non-bool enabled
+    ):
+        r = client.put("/api/settings", json={"values": {"style_loras": bad}})
+        assert r.status_code == 400, bad
+
+    # good value still in place, and empty value clears it
+    assert client.get("/api/settings").json()["overrides"]["style_loras"] == ok
+    r = client.put("/api/settings", json={"values": {"style_loras": ""}})
+    assert r.status_code == 200
+    assert "style_loras" not in client.get("/api/settings").json()["overrides"]
+
+
 def test_put_settings_rejects_unknown_key(client):
     r = client.put("/api/settings", json={"values": {"evil_key": "http://attacker"}})
     assert r.status_code == 400
