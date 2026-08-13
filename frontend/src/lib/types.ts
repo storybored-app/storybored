@@ -108,6 +108,16 @@ export interface WorkflowParameter {
   options?: string[];
 }
 
+/** One baked-in LoRA of an engine pack, with any user override applied. */
+export interface EngineLoraRow {
+  node: string;
+  lora_name: string;
+  strength: number;
+  baked_strength: number;
+  enabled: boolean;
+  disabled_with_character: boolean;
+}
+
 export interface WorkflowManifest {
   id: string;
   name: string;
@@ -118,6 +128,15 @@ export interface WorkflowManifest {
   missing_models?: string[];
   /** Set by GET /api/workflows when the engine couldn't be reached at all. */
   error?: string;
+  /** True for the engine used when a shot doesn't pick one (per kind). */
+  default?: boolean;
+  supports_characters?: boolean;
+  /** Baked LoRA stack in chain order, user overrides applied. */
+  loras?: EngineLoraRow[];
+  /** User-appended LoRAs (from the engine_loras setting). */
+  added_loras?: StyleLora[];
+  /** True when the engine_loras setting customizes this pack. */
+  loras_modified?: boolean;
 }
 
 export type HealthPart =

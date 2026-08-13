@@ -185,14 +185,18 @@ def parse_style_loras(raw: str) -> list[dict]:
 
 
 def inject_style_loras(
-    graph: dict, injection: Mapping[str, Any] | None, styles: Sequence[Mapping[str, Any]]
+    graph: dict,
+    injection: Mapping[str, Any] | None,
+    styles: Sequence[Mapping[str, Any]],
+    id_prefix: str = "style_lora_",
 ) -> list[str]:
-    """Splice style LoRAs right after the pack's injection point (mutates it).
+    """Splice extra LoRAs right after the pack's injection point (mutates it).
 
-    ``styles`` comes from parse_style_loras. Style LoRAs reuse the pack's
-    ``character_injection.after_node`` splice point; when called after
-    inject_characters they land between the pack's base stack and the
-    character LoRAs, so character identity keeps the final say.
+    ``styles`` comes from parse_style_loras. Extra LoRAs reuse the pack's
+    ``character_injection.after_node`` splice point; each later call lands
+    closer to the base stack than earlier ones, so splicing characters, then
+    styles, then engine additions yields base → additions → styles →
+    characters, keeping character identity last.
 
     Returns the injected node ids (in chain order).
     """
@@ -206,7 +210,102 @@ def inject_style_loras(
     tail = str(injection.get("after_node", ""))
     if tail not in graph:
         raise ValueError(f"character_injection.after_node '{tail}' is not in the graph")
-    return _splice_lora_chain(graph, tail, "style_lora_", entries)
+    return _splice_lora_chain(graph, tail, id_prefix, entries)
+
+
+def lora_chain(graph: Mapping[str, Any]) -> list[str]:
+    """LoraLoader node ids in chain order (base model first).
+
+    Order = depth following each node's ``model`` link through other
+    LoraLoaders; nodes fed straight from a loader come first.
+    """
+    loras = {k for k, v in graph.items() if v.get("class_type") == "LoraLoader"}
+
+    def depth(node_id: str, seen: frozenset = frozenset()) -> int:
+        if node_id in seen:  # cycle guard — malformed graph
+            return 0
+        parent = (graph[node_id].get("inputs") or {}).get("model")
+        if isinstance(parent, list) and parent and parent[0] in loras:
+            return depth(parent[0], seen | {node_id}) + 1
+        return 0
+
+    return sorted(loras, key=lambda n: (depth(n), n))
+
+
+def parse_engine_loras(raw: str) -> dict[str, list[dict]]:
+    """Parse the ``engine_loras`` setting (JSON string): pack id → entries.
+
+    Each entry either overrides a baked LoraLoader node
+    (``{"node": id, "strength"?: float, "enabled"?: bool}``) or appends a new
+    LoRA (``{"lora_name": name, "strength"?: float, "enabled"?: bool}``).
+    Defensive like parse_style_loras — malformed data is dropped, never fatal.
+    """
+    try:
+        data = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    result: dict[str, list[dict]] = {}
+    for pack_id, items in data.items():
+        if not isinstance(items, list):
+            continue
+        entries: list[dict] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            node = str(item.get("node", "")).strip()
+            name = str(item.get("lora_name", "")).strip()
+            if not node and not name:
+                continue
+            try:
+                strength = float(item.get("strength", 1.0))
+            except (TypeError, ValueError):
+                strength = 1.0
+            entry: dict = {"strength": strength, "enabled": item.get("enabled", True) is not False}
+            if node:
+                entry["node"] = node
+                if "strength" not in item:
+                    entry.pop("strength")  # override may change enabled only
+            else:
+                entry["lora_name"] = name
+            entries.append(entry)
+        if entries:
+            result[str(pack_id)] = entries
+    return result
+
+
+def apply_engine_lora_overrides(graph: dict, entries: Sequence[Mapping[str, Any]]) -> None:
+    """Write per-node strength/enabled overrides onto baked LoraLoaders (mutates).
+
+    ``enabled: false`` zeroes both strengths (LoraLoader skips at 0 — same as
+    removing the node). Unknown node ids are ignored so a stale override can
+    never sink a render after a pack update.
+    """
+    for entry in entries:
+        node_id = str(entry.get("node", ""))
+        if not node_id:
+            continue
+        node = graph.get(node_id)
+        if node is None or node.get("class_type") != "LoraLoader":
+            continue
+        inputs = node.setdefault("inputs", {})
+        if entry.get("enabled", True) is False:
+            inputs["strength_model"] = 0
+            inputs["strength_clip"] = 0
+        elif "strength" in entry:
+            strength = float(entry["strength"])
+            inputs["strength_model"] = strength
+            inputs["strength_clip"] = strength
+
+
+def added_engine_loras(entries: Sequence[Mapping[str, Any]]) -> list[dict]:
+    """The enabled append-entries (have lora_name, no node) from parse_engine_loras."""
+    return [
+        {"lora_name": e["lora_name"], "strength": float(e.get("strength", 1.0))}
+        for e in entries
+        if e.get("lora_name") and not e.get("node") and e.get("enabled", True) is not False
+    ]
 
 
 def set_filename_prefix(graph: dict, prefix: str) -> None:

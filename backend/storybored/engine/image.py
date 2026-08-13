@@ -22,9 +22,12 @@ from storybored.api.shots import refresh_shot_characters
 from storybored.engine import registry
 from storybored.engine.comfy_client import ComfyCancelled, ComfyClient, ComfyError
 from storybored.engine.graph import (
+    added_engine_loras,
+    apply_engine_lora_overrides,
     apply_parameters,
     inject_characters,
     inject_style_loras,
+    parse_engine_loras,
     parse_mentions,
     parse_style_loras,
     set_filename_prefix,
@@ -128,6 +131,9 @@ async def image_gen(job, ctx):
         by_handle = {c.handle: c for c in rows}
         comfy_url = effective_setting(session, settings, "comfyui_url")
         style_loras = parse_style_loras(effective_setting(session, settings, "style_loras"))
+        engine_loras = parse_engine_loras(
+            effective_setting(session, settings, "engine_loras")
+        ).get(workflow_id, [])
 
     pack = registry.get_pack(settings, workflow_id)
     if pack is None:
@@ -169,10 +175,16 @@ async def image_gen(job, ctx):
         prompt_id: str | None = None
         try:
             graph = apply_parameters(base_graph, manifest, params)
-            inject_characters(graph, manifest.get("character_injection"), characters)
-            # After characters on purpose: styles splice in at the same point,
-            # landing between the base stack and the character LoRAs.
-            inject_style_loras(graph, manifest.get("character_injection"), style_loras)
+            apply_engine_lora_overrides(graph, engine_loras)
+            injection = manifest.get("character_injection")
+            # Splice order characters → styles → engine additions: each later
+            # splice lands closer to the base stack, so the final chain is
+            # base → engine additions → styles → characters (identity last).
+            inject_characters(graph, injection, characters)
+            inject_style_loras(graph, injection, style_loras)
+            inject_style_loras(
+                graph, injection, added_engine_loras(engine_loras), id_prefix="engine_lora_"
+            )
             set_filename_prefix(graph, f"storybored/take_{take.id}")
 
             ctx.update_progress(progress=i / n_takes, detail=f"{label}: submitting")

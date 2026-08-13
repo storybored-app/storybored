@@ -47,6 +47,32 @@ def test_put_settings_validates_style_loras(client):
     assert "style_loras" not in client.get("/api/settings").json()["overrides"]
 
 
+def test_put_settings_validates_engine_loras(client):
+    ok = (
+        '{"krea2-realism": [{"node": "lora_2", "strength": 1.5},'
+        ' {"lora_name": "extra.safetensors", "strength": 0.7, "enabled": true}]}'
+    )
+    r = client.put("/api/settings", json={"values": {"engine_loras": ok}})
+    assert r.status_code == 200, r.text
+    assert client.get("/api/settings").json()["overrides"]["engine_loras"] == ok
+
+    for bad in (
+        "not json",
+        '["not", "an", "object"]',
+        '{"pack": "not a list"}',
+        '{"pack": [{"strength": 1.0}]}',  # neither node nor lora_name
+        '{"pack": [{"node": "lora_2", "strength": "high"}]}',
+        '{"pack": [{"node": "lora_2", "strength": 99}]}',
+        '{"pack": [{"node": "lora_2", "enabled": "yes"}]}',
+    ):
+        r = client.put("/api/settings", json={"values": {"engine_loras": bad}})
+        assert r.status_code == 400, bad
+
+    r = client.put("/api/settings", json={"values": {"engine_loras": ""}})
+    assert r.status_code == 200
+    assert "engine_loras" not in client.get("/api/settings").json()["overrides"]
+
+
 def test_put_settings_rejects_unknown_key(client):
     r = client.put("/api/settings", json={"values": {"evil_key": "http://attacker"}})
     assert r.status_code == 400

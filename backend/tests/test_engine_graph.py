@@ -10,9 +10,13 @@ import pytest
 from storybored.config import Settings
 from storybored.engine import registry
 from storybored.engine.graph import (
+    added_engine_loras,
+    apply_engine_lora_overrides,
     apply_parameters,
     inject_characters,
     inject_style_loras,
+    lora_chain,
+    parse_engine_loras,
     parse_mentions,
     parse_style_loras,
     set_filename_prefix,
@@ -215,6 +219,80 @@ def test_parse_style_loras():
     assert parse_style_loras("") == []
     assert parse_style_loras("not json") == []
     assert parse_style_loras('{"lora_name": "x"}') == []
+
+
+# -- engine LoRA overrides -------------------------------------------------------
+
+
+def test_lora_chain_order():
+    _, graph = load_pack("krea2-realism")
+    assert lora_chain(graph) == [f"lora_{i}" for i in range(8)]
+    _, basic = load_pack("krea2-basic")
+    assert lora_chain(basic) == ["lora_distill"]
+
+
+def test_parse_engine_loras():
+    raw = json.dumps(
+        {
+            "krea2-realism": [
+                {"node": "lora_2", "strength": 1.5},
+                {"node": "lora_6", "enabled": False},
+                {"lora_name": "extra.safetensors", "strength": 0.7},
+                {"lora_name": "off.safetensors", "enabled": False},
+                {"strength": 1.0},  # neither node nor lora_name — dropped
+            ],
+            "bad-pack": "not a list",
+        }
+    )
+    parsed = parse_engine_loras(raw)
+    assert set(parsed) == {"krea2-realism"}
+    entries = parsed["krea2-realism"]
+    assert entries[0] == {"node": "lora_2", "strength": 1.5, "enabled": True}
+    assert entries[1] == {"node": "lora_6", "enabled": False}
+    assert added_engine_loras(entries) == [{"lora_name": "extra.safetensors", "strength": 0.7}]
+    assert parse_engine_loras("") == {}
+    assert parse_engine_loras("not json") == {}
+    assert parse_engine_loras("[]") == {}
+
+
+def test_apply_engine_lora_overrides():
+    _, graph = load_pack("krea2-realism")
+    apply_engine_lora_overrides(
+        graph,
+        [
+            {"node": "lora_2", "strength": 1.5, "enabled": True},
+            {"node": "lora_6", "enabled": False},
+            {"node": "ghost_node", "strength": 1.0, "enabled": True},  # ignored
+            {"node": "6", "strength": 1.0, "enabled": True},  # not a LoraLoader — ignored
+        ],
+    )
+    assert graph["lora_2"]["inputs"]["strength_model"] == 1.5
+    assert graph["lora_2"]["inputs"]["strength_clip"] == 1.5
+    assert graph["lora_6"]["inputs"]["strength_model"] == 0
+    assert graph["lora_6"]["inputs"]["strength_clip"] == 0
+    assert graph["lora_7"]["inputs"]["strength_model"] == 0.8  # untouched
+    assert "strength_model" not in graph["6"]["inputs"]
+
+
+def test_added_engine_loras_splice_before_styles():
+    manifest, graph = load_pack("krea2-realism")
+    injection = manifest["character_injection"]
+    (char_node,) = inject_characters(graph, injection, [char()])
+    (style_node,) = inject_style_loras(
+        graph, injection, [{"lora_name": "styles/noir.safetensors", "strength": 0.6}]
+    )
+    (added_node,) = inject_style_loras(
+        graph,
+        injection,
+        [{"lora_name": "added.safetensors", "strength": 0.5}],
+        id_prefix="engine_lora_",
+    )
+    # chain: lora_7 -> engine addition -> style -> char -> {sage, 6}
+    assert added_node == "engine_lora_0"
+    assert graph[added_node]["inputs"]["model"] == ["lora_7", 0]
+    assert graph[style_node]["inputs"]["model"] == [added_node, 0]
+    assert graph[char_node]["inputs"]["model"] == [style_node, 0]
+    assert graph["sage"]["inputs"]["model"] == [char_node, 0]
 
 
 def test_set_filename_prefix():

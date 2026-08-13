@@ -253,13 +253,18 @@ export function ShotDrawer({
 
   const imageWorkflows = (workflows ?? []).filter((w) => w.kind === "image");
   const videoWorkflows = (workflows ?? []).filter((w) => w.kind === "video");
+  // Preselect the configured default engine, falling back to any available one.
+  const preselect = (list: WorkflowManifest[]) =>
+    (
+      list.find((w) => w.default && w.available !== false) ??
+      list.find((w) => w.available !== false) ??
+      list[0]
+    ).id;
   useEffect(() => {
-    if (!imageWf && imageWorkflows.length)
-      setImageWf((imageWorkflows.find((w) => w.available !== false) ?? imageWorkflows[0]).id);
+    if (!imageWf && imageWorkflows.length) setImageWf(preselect(imageWorkflows));
   }, [imageWorkflows, imageWf]);
   useEffect(() => {
-    if (!videoWf && videoWorkflows.length)
-      setVideoWf((videoWorkflows.find((w) => w.available !== false) ?? videoWorkflows[0]).id);
+    if (!videoWf && videoWorkflows.length) setVideoWf(preselect(videoWorkflows));
   }, [videoWorkflows, videoWf]);
 
   const selectedImageWf = imageWorkflows.find((w) => w.id === imageWf);
@@ -555,6 +560,7 @@ export function ShotDrawer({
                         {imageWorkflows.map((w) => (
                           <option key={w.id} value={w.id} disabled={w.available === false}>
                             {w.name}
+                            {w.default ? " (default)" : ""}
                             {w.available === false ? " (unavailable)" : ""}
                           </option>
                         ))}
@@ -661,6 +667,7 @@ export function ShotDrawer({
                       {videoWorkflows.map((w) => (
                         <option key={w.id} value={w.id} disabled={w.available === false}>
                           {w.name}
+                          {w.default ? " (default)" : ""}
                           {w.available === false ? " (unavailable)" : ""}
                         </option>
                       ))}

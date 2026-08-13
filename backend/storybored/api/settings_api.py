@@ -26,6 +26,7 @@ OVERRIDABLE = {
     "default_image_workflow",
     "default_video_workflow",
     "style_loras",
+    "engine_loras",
 }
 
 
@@ -39,23 +40,51 @@ def _validate_style_loras(raw: str) -> None:
     if not isinstance(data, list):
         raise HTTPException(status_code=400, detail="style_loras must be a JSON list")
     for item in data:
-        if not isinstance(item, dict) or not str(item.get("lora_name", "")).strip():
-            raise HTTPException(
-                status_code=400, detail="each style LoRA entry needs a lora_name"
-            )
-        strength = item.get("strength", 1.0)
+        _check_lora_entry(item, allow_node=False)
+
+
+def _check_lora_entry(item: object, *, allow_node: bool) -> None:
+    """Shared shape check for one style/engine LoRA entry."""
+    if not isinstance(item, dict):
+        raise HTTPException(status_code=400, detail="each LoRA entry must be an object")
+    node = str(item.get("node", "")).strip() if allow_node else ""
+    name = str(item.get("lora_name", "")).strip()
+    if not node and not name:
+        detail = (
+            "each engine LoRA entry needs a node or a lora_name"
+            if allow_node
+            else "each style LoRA entry needs a lora_name"
+        )
+        raise HTTPException(status_code=400, detail=detail)
+    if "strength" in item:
+        strength = item["strength"]
         if isinstance(strength, bool) or not isinstance(strength, (int, float)):
-            raise HTTPException(
-                status_code=400, detail="style LoRA strength must be a number"
-            )
+            raise HTTPException(status_code=400, detail="LoRA strength must be a number")
         if not -5 <= strength <= 5:
             raise HTTPException(
-                status_code=400, detail="style LoRA strength must be between -5 and 5"
+                status_code=400, detail="LoRA strength must be between -5 and 5"
             )
-        if not isinstance(item.get("enabled", True), bool):
+    if not isinstance(item.get("enabled", True), bool):
+        raise HTTPException(status_code=400, detail="LoRA enabled must be true or false")
+
+
+def _validate_engine_loras(raw: str) -> None:
+    """engine_loras: JSON object of pack id → list of node-override / append entries."""
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="engine_loras must be valid JSON") from None
+    if not isinstance(data, dict):
+        raise HTTPException(
+            status_code=400, detail="engine_loras must be a JSON object keyed by engine id"
+        )
+    for pack_id, items in data.items():
+        if not isinstance(items, list):
             raise HTTPException(
-                status_code=400, detail="style LoRA enabled must be true or false"
+                status_code=400, detail=f"engine_loras['{pack_id}'] must be a list"
             )
+        for item in items:
+            _check_lora_entry(item, allow_node=True)
 
 
 def _is_secret_key(key: str) -> bool:
@@ -114,6 +143,8 @@ def put_settings(
     for key, value in body.values.items():
         if key == "style_loras" and value:
             _validate_style_loras(value)
+        if key == "engine_loras" and value:
+            _validate_engine_loras(value)
         row = session.get(Setting, key)
         if value is None or value == "":
             if row is not None:

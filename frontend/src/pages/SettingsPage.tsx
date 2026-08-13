@@ -5,6 +5,7 @@ import { apiGet, apiPut } from "../lib/api";
 import {
   healthDetail,
   healthOk,
+  type EngineLoraRow,
   type Health,
   type SettingsMap,
   type StyleLora,
@@ -30,6 +31,24 @@ function getSetting(s: SettingsMap | undefined, key: string): string {
   return typeof v === "string" ? v : "";
 }
 
+/** One entry of the engine_loras setting: node override or appended LoRA. */
+type EngineLoraEntry = {
+  node?: string;
+  lora_name?: string;
+  strength?: number;
+  enabled?: boolean;
+};
+
+/** Parse the engine_loras setting (JSON object keyed by engine id) defensively. */
+function parseEngineLorasSetting(raw: string): Record<string, EngineLoraEntry[]> {
+  try {
+    const data = JSON.parse(raw || "{}");
+    return data && typeof data === "object" && !Array.isArray(data) ? data : {};
+  } catch {
+    return {};
+  }
+}
+
 /** Parse the style_loras setting (JSON string) defensively. */
 function parseStyleLoras(raw: string): StyleLora[] {
   try {
@@ -47,28 +66,74 @@ function parseStyleLoras(raw: string): StyleLora[] {
   }
 }
 
-function WorkflowRow({ wf }: { wf: WorkflowManifest }) {
+/** Diff the edited stack + additions against baked values → setting entries. */
+function buildEngineLoraEntries(
+  stack: EngineLoraRow[],
+  added: StyleLora[],
+): EngineLoraEntry[] {
+  const entries: EngineLoraEntry[] = [];
+  for (const row of stack) {
+    const e: EngineLoraEntry = { node: row.node };
+    if (row.strength !== row.baked_strength) e.strength = row.strength;
+    if (!row.enabled) e.enabled = false;
+    if (e.strength !== undefined || e.enabled === false) entries.push(e);
+  }
+  for (const a of added) {
+    entries.push({ lora_name: a.lora_name, strength: a.strength, enabled: a.enabled });
+  }
+  return entries;
+}
+
+function WorkflowRow({
+  wf,
+  availableLoras,
+  onMakeDefault,
+  onSaveLoras,
+}: {
+  wf: WorkflowManifest;
+  availableLoras: string[] | undefined;
+  onMakeDefault: (wf: WorkflowManifest) => void;
+  onSaveLoras: (packId: string, entries: EngineLoraEntry[]) => void;
+}) {
   const [open, setOpen] = useState(false);
+  const [stack, setStack] = useState<EngineLoraRow[]>(wf.loras ?? []);
+  const [added, setAdded] = useState<StyleLora[]>(wf.added_loras ?? []);
+  const [newLora, setNewLora] = useState("");
+
+  // Resync the editor whenever the server payload changes (save/reset/refetch).
+  const wfKey = JSON.stringify([wf.loras, wf.added_loras]);
+  useEffect(() => {
+    setStack(wf.loras ?? []);
+    setAdded(wf.added_loras ?? []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wfKey]);
+
   const missing = wf.missing_models ?? [];
   const available = wf.available !== false;
   // No missing-model list + an error means the engine itself was unreachable —
   // don't mislabel that as "missing models".
   const unreachable = !available && !!wf.error;
-  const expandable = missing.length > 0 || unreachable;
+
+  const commit = (nextStack: EngineLoraRow[], nextAdded: StyleLora[]) => {
+    setStack(nextStack);
+    setAdded(nextAdded);
+    onSaveLoras(wf.id, buildEngineLoraEntries(nextStack, nextAdded));
+  };
+  const inChain = new Set([
+    ...stack.map((r) => r.lora_name),
+    ...added.map((a) => a.lora_name),
+  ]);
+
   return (
     <li className="border-b border-line/50 last:border-b-0">
       <button
         className="flex w-full items-center gap-3 px-4 py-3 text-left"
         onClick={() => setOpen((o) => !o)}
       >
-        {expandable ? (
-          open ? (
-            <ChevronDown size={14} className="text-fog" />
-          ) : (
-            <ChevronRight size={14} className="text-fog" />
-          )
+        {open ? (
+          <ChevronDown size={14} className="text-fog" />
         ) : (
-          <span className="w-3.5" />
+          <ChevronRight size={14} className="text-fog" />
         )}
         <div className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium text-paper">{wf.name}</span>
@@ -76,6 +141,8 @@ function WorkflowRow({ wf }: { wf: WorkflowManifest }) {
             <span className="block truncate text-xs text-fog">{wf.description}</span>
           )}
         </div>
+        {wf.default && <Badge tone="amber">default</Badge>}
+        {wf.loras_modified && <Badge tone="fog">customized</Badge>}
         <Badge tone="fog">{wf.kind}</Badge>
         {available ? (
           <Badge tone="green">ready</Badge>
@@ -85,14 +152,15 @@ function WorkflowRow({ wf }: { wf: WorkflowManifest }) {
           <Badge tone="red">missing models</Badge>
         )}
       </button>
-      {open && expandable && (
-        <div className="px-11 pb-3">
-          {unreachable ? (
-            <p className="text-xs text-status-failed/90">
+      {open && (
+        <div className="px-11 pb-4">
+          {unreachable && (
+            <p className="mb-2 text-xs text-status-failed/90">
               Can't reach the image engine — is it running? Set its address above.
             </p>
-          ) : (
-            <>
+          )}
+          {!unreachable && missing.length > 0 && (
+            <div className="mb-2">
               <p className="mb-1 text-xs text-fog">
                 This engine needs model files that aren't installed:
               </p>
@@ -103,7 +171,190 @@ function WorkflowRow({ wf }: { wf: WorkflowManifest }) {
                   </li>
                 ))}
               </ul>
-            </>
+            </div>
+          )}
+
+          <div className="mb-2 flex items-center gap-2">
+            <span className="flex-1 text-xs font-medium uppercase tracking-wider text-fog">
+              Built-in LoRA stack
+            </span>
+            {wf.loras_modified && (
+              <Button size="sm" onClick={() => onSaveLoras(wf.id, [])}>
+                Reset to pack defaults
+              </Button>
+            )}
+            {!wf.default && (
+              <Button size="sm" onClick={() => onMakeDefault(wf)}>
+                Make default
+              </Button>
+            )}
+          </div>
+
+          {stack.length === 0 && added.length === 0 ? (
+            <p className="text-xs text-fog/80">This engine has no LoRAs.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {stack.map((row, i) => (
+                <div
+                  key={row.node}
+                  className="flex items-center gap-3 rounded-md border border-line/60 bg-ink-900 px-3 py-1.5"
+                >
+                  <input
+                    type="checkbox"
+                    checked={row.enabled}
+                    onChange={(e) =>
+                      commit(
+                        stack.map((x, j) =>
+                          j === i ? { ...x, enabled: e.target.checked } : x,
+                        ),
+                        added,
+                      )
+                    }
+                    className="h-4 w-4 accent-amber-450"
+                    title={row.enabled ? "On — in the render chain" : "Off — skipped"}
+                  />
+                  <span
+                    className={`min-w-0 flex-1 truncate font-mono text-xs ${
+                      row.enabled ? "text-paper" : "text-fog"
+                    }`}
+                  >
+                    {row.lora_name}
+                  </span>
+                  {row.disabled_with_character && (
+                    <span className="shrink-0 text-[10px] uppercase tracking-wide text-fog/70">
+                      off with @characters
+                    </span>
+                  )}
+                  <Input
+                    type="number"
+                    step={0.05}
+                    min={-5}
+                    max={5}
+                    value={row.strength}
+                    onChange={(e) =>
+                      setStack(
+                        stack.map((x, j) =>
+                          j === i
+                            ? { ...x, strength: Number(e.target.value) || 0 }
+                            : x,
+                        ),
+                      )
+                    }
+                    onBlur={() =>
+                      onSaveLoras(wf.id, buildEngineLoraEntries(stack, added))
+                    }
+                    className="h-7 w-20 text-xs"
+                    title={
+                      row.strength !== row.baked_strength
+                        ? `Strength (pack default ${row.baked_strength})`
+                        : "Strength"
+                    }
+                  />
+                </div>
+              ))}
+              {added.map((a, i) => (
+                <div
+                  key={a.lora_name}
+                  className="flex items-center gap-3 rounded-md border border-amber-450/25 bg-ink-900 px-3 py-1.5"
+                >
+                  <input
+                    type="checkbox"
+                    checked={a.enabled}
+                    onChange={(e) =>
+                      commit(
+                        stack,
+                        added.map((x, j) =>
+                          j === i ? { ...x, enabled: e.target.checked } : x,
+                        ),
+                      )
+                    }
+                    className="h-4 w-4 accent-amber-450"
+                  />
+                  <span
+                    className={`min-w-0 flex-1 truncate font-mono text-xs ${
+                      a.enabled ? "text-paper" : "text-fog"
+                    }`}
+                  >
+                    {a.lora_name}
+                  </span>
+                  <span className="shrink-0 text-[10px] uppercase tracking-wide text-amber-450/80">
+                    added
+                  </span>
+                  <Input
+                    type="number"
+                    step={0.05}
+                    min={-5}
+                    max={5}
+                    value={a.strength}
+                    onChange={(e) =>
+                      setAdded(
+                        added.map((x, j) =>
+                          j === i
+                            ? { ...x, strength: Number(e.target.value) || 0 }
+                            : x,
+                        ),
+                      )
+                    }
+                    onBlur={() =>
+                      onSaveLoras(wf.id, buildEngineLoraEntries(stack, added))
+                    }
+                    className="h-7 w-20 text-xs"
+                    title="Strength"
+                  />
+                  <button
+                    onClick={() =>
+                      commit(
+                        stack,
+                        added.filter((_, j) => j !== i),
+                      )
+                    }
+                    className="text-fog transition-colors hover:text-status-failed"
+                    title="Remove"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {wf.supports_characters && (
+            <div className="mt-2 flex items-center gap-2">
+              <Select
+                value={newLora}
+                onChange={(e) => setNewLora(e.target.value)}
+                className="h-8 text-xs"
+              >
+                <option value="">
+                  {availableLoras
+                    ? availableLoras.length
+                      ? "Add a LoRA to this engine…"
+                      : "No LoRAs found on the engine"
+                    : "Loading LoRA list…"}
+                </option>
+                {(availableLoras ?? [])
+                  .filter((name) => !inChain.has(name))
+                  .map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+              </Select>
+              <Button
+                size="sm"
+                disabled={!newLora}
+                onClick={() => {
+                  if (!newLora) return;
+                  commit(stack, [
+                    ...added,
+                    { lora_name: newLora, strength: 1.0, enabled: true },
+                  ]);
+                  setNewLora("");
+                }}
+              >
+                <Plus size={14} /> Add
+              </Button>
+            </div>
           )}
         </div>
       )}
@@ -189,6 +440,45 @@ export function SettingsPage() {
     ]);
     setNewStyleLora("");
   };
+
+  const saveEngineLorasMut = useMutation({
+    mutationFn: (next: Record<string, EngineLoraEntry[]>) =>
+      apiPut("/api/settings", {
+        values: { engine_loras: Object.keys(next).length ? JSON.stringify(next) : "" },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings"] });
+      qc.invalidateQueries({ queryKey: ["workflows"] });
+    },
+    onError: (e: Error) => {
+      toast(e.message, "error");
+      qc.invalidateQueries({ queryKey: ["workflows"] });
+    },
+  });
+
+  // Merge one engine's entries into the whole setting (other engines untouched).
+  const saveEngineLoras = (packId: string, entries: EngineLoraEntry[]) => {
+    const next = parseEngineLorasSetting(getSetting(settings, "engine_loras"));
+    if (entries.length) next[packId] = entries;
+    else delete next[packId];
+    saveEngineLorasMut.mutate(next);
+  };
+
+  const makeDefault = useMutation({
+    mutationFn: (wf: WorkflowManifest) =>
+      apiPut("/api/settings", {
+        values: {
+          [wf.kind === "video" ? "default_video_workflow" : "default_image_workflow"]:
+            wf.id,
+        },
+      }),
+    onSuccess: (_data, wf) => {
+      toast(`${wf.name} is now the default ${wf.kind} engine.`, "success");
+      qc.invalidateQueries({ queryKey: ["settings"] });
+      qc.invalidateQueries({ queryKey: ["workflows"] });
+    },
+    onError: (e: Error) => toast(e.message, "error"),
+  });
 
   const saveEngine = useMutation({
     mutationFn: () =>
@@ -465,8 +755,9 @@ export function SettingsPage() {
         <header className="border-b border-line px-4 py-3">
           <h2 className="text-sm font-semibold">Engines</h2>
           <p className="mt-0.5 text-xs text-fog">
-            Rendering styles installed on this system. Add more by dropping a pack into the
-            workflows folder.
+            Rendering styles installed on this system — the <em>default</em> one renders
+            shots that don't pick an engine. Expand a row to see and edit the LoRAs it
+            runs with. Add more engines by dropping a pack into the workflows folder.
           </p>
         </header>
         {wfError ? (
@@ -483,7 +774,13 @@ export function SettingsPage() {
         ) : (
           <ul>
             {workflows.map((wf) => (
-              <WorkflowRow key={wf.id} wf={wf} />
+              <WorkflowRow
+                key={wf.id}
+                wf={wf}
+                availableLoras={availableLoras}
+                onMakeDefault={(w) => makeDefault.mutate(w)}
+                onSaveLoras={saveEngineLoras}
+              />
             ))}
           </ul>
         )}

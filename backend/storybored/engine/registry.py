@@ -18,6 +18,7 @@ from pathlib import Path
 
 from storybored.config import Settings
 from storybored.engine.comfy_client import ComfyClient, ComfyError
+from storybored.engine.graph import lora_chain
 
 log = logging.getLogger("storybored.engine")
 
@@ -82,24 +83,84 @@ async def pack_availability(pack: WorkflowPack, client: ComfyClient) -> dict:
     return {"available": not missing, "missing_models": missing, "error": None}
 
 
-async def list_workflows(settings: Settings, comfy_url: str) -> list[dict]:
-    """Registry payload for GET /api/workflows."""
+def pack_lora_stack(pack: WorkflowPack, overrides: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(baked stack with overrides applied, added entries) for the UI.
+
+    Baked rows: {node, lora_name, strength, baked_strength, enabled,
+    disabled_with_character}. Added rows: {lora_name, strength, enabled}.
+    """
+    try:
+        graph = pack.load_graph()
+    except (OSError, json.JSONDecodeError):
+        return [], []
+    by_node = {str(e["node"]): e for e in overrides if e.get("node")}
+    disable = {str(n) for n in (pack.manifest.get("character_injection") or {}).get("disable_nodes") or []}
+    stack: list[dict] = []
+    for node_id in lora_chain(graph):
+        inputs = graph[node_id].get("inputs") or {}
+        baked = float(inputs.get("strength_model") or 0)
+        override = by_node.get(node_id, {})
+        stack.append(
+            {
+                "node": node_id,
+                "lora_name": str(inputs.get("lora_name", "")),
+                "strength": float(override.get("strength", baked)),
+                "baked_strength": baked,
+                "enabled": override.get("enabled", True) is not False,
+                "disabled_with_character": node_id in disable,
+            }
+        )
+    added = [
+        {
+            "lora_name": e["lora_name"],
+            "strength": float(e.get("strength", 1.0)),
+            "enabled": e.get("enabled", True) is not False,
+        }
+        for e in overrides
+        if e.get("lora_name") and not e.get("node")
+    ]
+    return stack, added
+
+
+async def list_workflows(
+    settings: Settings,
+    comfy_url: str,
+    default_ids: dict[str, str] | None = None,
+    engine_loras: dict[str, list[dict]] | None = None,
+) -> list[dict]:
+    """Registry payload for GET /api/workflows.
+
+    ``default_ids`` maps kind → user-chosen default pack id ("" = unset, fall
+    back to the deterministic default). ``engine_loras`` is the parsed
+    engine_loras setting (pack id → override/append entries).
+    """
     client = ComfyClient(comfy_url)
     packs = load_packs(settings)
+    defaults = {
+        kind: (default_ids or {}).get(kind) or default_workflow_id(packs, kind)
+        for kind in ("image", "video")
+    }
     entries: list[dict] = []
     for pack_id in sorted(packs):
         pack = packs[pack_id]
         manifest = pack.manifest
         availability = await pack_availability(pack, client)
+        overrides = (engine_loras or {}).get(pack.id, [])
+        stack, added = pack_lora_stack(pack, overrides)
+        kind = manifest.get("kind", "image")
         entry = {
             "id": pack.id,
             "name": manifest.get("name", pack.id),
-            "kind": manifest.get("kind", "image"),
+            "kind": kind,
             "description": manifest.get("description", ""),
             "parameters": manifest.get("parameters", []),
             "supports_characters": bool(manifest.get("character_injection")),
             "available": availability["available"],
             "missing_models": availability["missing_models"],
+            "default": pack.id == defaults.get(kind),
+            "loras": stack,
+            "added_loras": added,
+            "loras_modified": bool(overrides),
         }
         if availability["error"]:
             entry["error"] = availability["error"]

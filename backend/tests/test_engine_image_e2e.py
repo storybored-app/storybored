@@ -174,6 +174,78 @@ def test_style_loras_setting_injected_into_render(client, fake_comfy):  # noqa: 
     assert graph["6"]["inputs"]["clip"] == [char_id, 1]
 
 
+def test_engine_lora_overrides_reach_render(client, fake_comfy):  # noqa: F811
+    r = client.put(
+        "/api/settings",
+        json={
+            "values": {
+                "engine_loras": json.dumps(
+                    {
+                        "krea2-realism": [
+                            {"node": "lora_2", "strength": 1.5},
+                            {"node": "lora_6", "enabled": False},
+                            {"lora_name": "added.safetensors", "strength": 0.5},
+                            {"lora_name": "off.safetensors", "enabled": False},
+                        ]
+                    }
+                )
+            }
+        },
+    )
+    assert r.status_code == 200, r.text
+
+    _, _, shot = make_board(client, description="a quiet hallway")
+    r = client.post(
+        f"/api/shots/{shot['id']}/generate",
+        json={"workflow_id": "krea2-realism", "n_takes": 1},
+    )
+    job = wait_job(client, r.json()["job_id"])
+    assert job["status"] == "done", job
+
+    (prompt_id,) = fake_comfy.state.order
+    graph = fake_comfy.state.prompts[prompt_id]
+    assert graph["lora_2"]["inputs"]["strength_model"] == 1.5
+    assert graph["lora_6"]["inputs"]["strength_model"] == 0
+    assert graph["engine_lora_0"]["inputs"]["lora_name"] == "added.safetensors"
+    assert graph["engine_lora_0"]["inputs"]["model"] == ["lora_7", 0]
+    assert graph["sage"]["inputs"]["model"] == ["engine_lora_0", 0]
+    assert not any(
+        n["inputs"].get("lora_name") == "off.safetensors"
+        for n in graph.values()
+        if n["class_type"] == "LoraLoader"
+    )
+
+
+def test_workflows_payload_reports_stack_and_default(client, fake_comfy):  # noqa: F811
+    r = client.put(
+        "/api/settings",
+        json={
+            "values": {
+                "default_image_workflow": "krea2-realism",
+                "engine_loras": json.dumps(
+                    {"krea2-realism": [{"node": "lora_6", "enabled": False}]}
+                ),
+            }
+        },
+    )
+    assert r.status_code == 200, r.text
+
+    workflows = {w["id"]: w for w in client.get("/api/workflows").json()}
+    realism = workflows["krea2-realism"]
+    assert realism["default"] is True
+    assert workflows["krea2-basic"]["default"] is False
+    assert realism["loras_modified"] is True
+    stack = {row["node"]: row for row in realism["loras"]}
+    assert [row["node"] for row in realism["loras"]] == [f"lora_{i}" for i in range(8)]
+    assert stack["lora_6"]["enabled"] is False
+    assert stack["lora_7"]["strength"] == 0.8
+    assert stack["lora_3"]["disabled_with_character"] is True
+    assert stack["lora_0"]["disabled_with_character"] is False
+    basic = workflows["krea2-basic"]
+    assert [row["node"] for row in basic["loras"]] == ["lora_distill"]
+    assert basic["loras_modified"] is False
+
+
 def test_pinned_seed_repeats(client, fake_comfy):  # noqa: F811
     _, _, shot = make_board(client, description="a quiet hallway")
     r = client.post(
