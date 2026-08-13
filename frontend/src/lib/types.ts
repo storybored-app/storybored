@@ -48,6 +48,8 @@ export interface Shot {
   dialogue: string;
   duration_s: number;
   motion_prompt: string;
+  /** Where the picked still anchors the video clip: "first" | "last". */
+  frame_position?: string;
   status: ShotStatus;
   picked_take_id?: number | null;
   video_take_id?: number | null;
@@ -108,6 +110,20 @@ export interface WorkflowParameter {
   options?: string[];
 }
 
+/** One swappable model slot of an engine pack (e.g. the base UNET). */
+export interface EngineModelSlot {
+  key: string;
+  label: string;
+  node: string;
+  input: string;
+  /** Effective file: the user's override when set, else the baked one. */
+  value: string;
+  /** The pack's baked-in file. */
+  baked: string;
+  /** Engine dropdown choices ([] when the engine is unreachable). */
+  options: string[];
+}
+
 /** One baked-in LoRA of an engine pack, with any user override applied. */
 export interface EngineLoraRow {
   node: string;
@@ -131,12 +147,20 @@ export interface WorkflowManifest {
   /** True for the engine used when a shot doesn't pick one (per kind). */
   default?: boolean;
   supports_characters?: boolean;
+  /** True when extra LoRAs can be spliced into this pack (image or video). */
+  supports_loras?: boolean;
+  /** True when the still can anchor the END of the clip (video packs). */
+  supports_frame_position?: boolean;
   /** Baked LoRA stack in chain order, user overrides applied. */
   loras?: EngineLoraRow[];
   /** User-appended LoRAs (from the engine_loras setting). */
   added_loras?: StyleLora[];
   /** True when the engine_loras setting customizes this pack. */
   loras_modified?: boolean;
+  /** Swappable model slots with the effective choice applied. */
+  models?: EngineModelSlot[];
+  /** True when the engine_models setting customizes this pack. */
+  models_modified?: boolean;
 }
 
 export type HealthPart =

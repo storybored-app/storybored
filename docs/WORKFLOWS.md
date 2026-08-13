@@ -102,6 +102,9 @@ API export keeps only ids, so keep the editor-format `.json` around as your
 | `parameters` | yes | The knobs StoryBored is allowed to turn. Each entry maps a UI parameter onto one node input: the engine literally does `graph[node]["inputs"][input] = value`. Fields per entry: `key` (unique within the pack), optional `label` (UI text; defaults to the key), `type` (see below), `node` (node id string), `input` (input name on that node), optional `default`. |
 | `output_node` | yes | Id of the `SaveImage` / `SaveVideo` node. StoryBored rewrites its `filename_prefix` per take and reads results from ComfyUI history for this node. |
 | `character_injection` | no | Where `@character` LoRAs get spliced in (image packs; see next section). Omit it and the pack simply ignores characters. |
+| `lora_injection` | no | Where user-appended LoRAs splice in when the pack has no `character_injection` (video packs): `{"after_node": "1", "class_type": "LoraLoaderModelOnly"}`. `class_type` defaults to `LoraLoader`; model-only loaders take over only the model path (no clip). |
+| `model_slots` | no | Loader inputs users may swap from Settings: `[{"key": "unet", "label": "Base model", "node": "1", "input": "unet_name"}]`. The UI lists the engine's dropdown enum for each slot; choices are stored in the `engine_models` setting and written onto the input at render time. |
+| `frame_conditioning` | no | Video packs whose sampler accepts both a first- and a last-frame image: `{"node": "6", "first": "first_frame", "last": "last_frame"}`. Enables the shot-level "still anchors first/last frame" toggle — "last" moves whatever feeds the first input onto the last input. |
 | `required_models` | no | Map of `"<ClassType>.<input_name>"` → list of model filenames the graph needs. Validated against ComfyUI `/object_info` enums (cached 60 s); misses mark the pack unavailable with the missing names listed. |
 
 ### Parameter types
@@ -127,6 +130,12 @@ A `kind: "video"` manifest adds two conventional parameters:
 frames. The shot's `motion_prompt` feeds the pack's `prompt` parameter. See
 `workflows/minimax-h3-i2v/` for the shipped example (LoadImage →
 image-to-video node → sampler → video+audio decode → `SaveVideo`).
+
+Video packs can also declare `lora_injection` (users append video LoRAs from
+Settings), `model_slots` (swap the video UNET for a finetune), and
+`frame_conditioning` (let the still anchor the END of the clip instead of the
+start) — see the manifest field table above and the shipped minimax pack,
+which uses all three.
 
 ## Character injection, explained
 
@@ -161,7 +170,7 @@ trigger token is what the LoRA was trained to respond to.
 
 ## Runtime LoRA layers: what users can change without touching your pack
 
-Your pack's files are never edited by the app. Instead, Settings stores two
+Your pack's files are never edited by the app. Instead, Settings stores three
 JSON settings that are applied to the graph at render time, so users can tune
 an engine from the UI and always get back to your defaults with one click:
 
@@ -175,10 +184,16 @@ an engine from the UI and always get back to your defaults with one click:
 - **Style LoRAs** (Settings → Style LoRAs): a global list layered into *every*
   image render regardless of engine, each with its own on/off toggle and
   strength. Stored in the `style_loras` setting.
+- **Model swaps** (Settings → Engines → expand a row → Model): each
+  `model_slots` entry becomes a dropdown of the engine's installed files, so
+  users can run your pack on a different base model or finetune. Stored in the
+  `engine_models` setting keyed by pack id; unknown slot keys are ignored,
+  never fatal.
 
 Both kinds of extra LoRA splice into the graph at your
-`character_injection.after_node` — the same seam characters use. The final
-chain order is always:
+`character_injection.after_node` — the same seam characters use (packs without
+characters, e.g. video packs, declare the seam as `lora_injection` instead).
+The final chain order is always:
 
 ```
 your baked stack → engine additions → style LoRAs → character LoRAs → sampler
@@ -191,7 +206,8 @@ consequences for pack authors:
    characters — put it after the last LoRA you ship, even in a pack that
    doesn't target characters.
 2. A pack without `character_injection` still gets per-node strength/off
-   overrides, but users can't append LoRAs to it (there's no declared seam).
+   overrides, but users can't append LoRAs to it unless it declares a
+   `lora_injection` seam of its own.
 
 The Engines list also marks which pack is the **default** per kind (used
 whenever a shot doesn't pick an engine explicitly) and lets users change it —

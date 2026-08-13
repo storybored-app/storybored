@@ -6,6 +6,7 @@ import {
   healthDetail,
   healthOk,
   type EngineLoraRow,
+  type EngineModelSlot,
   type Health,
   type SettingsMap,
   type StyleLora,
@@ -49,6 +50,16 @@ function parseEngineLorasSetting(raw: string): Record<string, EngineLoraEntry[]>
   }
 }
 
+/** Parse the engine_models setting (pack id → slot key → filename) defensively. */
+function parseEngineModelsSetting(raw: string): Record<string, Record<string, string>> {
+  try {
+    const data = JSON.parse(raw || "{}");
+    return data && typeof data === "object" && !Array.isArray(data) ? data : {};
+  } catch {
+    return {};
+  }
+}
+
 /** Parse the style_loras setting (JSON string) defensively. */
 function parseStyleLoras(raw: string): StyleLora[] {
   try {
@@ -84,16 +95,58 @@ function buildEngineLoraEntries(
   return entries;
 }
 
+function ModelSlotRow({
+  slot,
+  onPick,
+}: {
+  slot: EngineModelSlot;
+  onPick: (key: string, value: string) => void;
+}) {
+  // The current value might be missing from the enum (engine offline or file
+  // removed) — keep it selectable so the row never shows the wrong model.
+  const options = slot.options.includes(slot.value)
+    ? slot.options
+    : [slot.value, ...slot.options];
+  return (
+    <div className="flex items-center gap-3 rounded-md border border-line/60 bg-ink-900 px-3 py-1.5">
+      <span className="shrink-0 text-xs text-fog">{slot.label}</span>
+      <Select
+        value={slot.value}
+        onChange={(e) => onPick(slot.key, e.target.value)}
+        className="h-8 min-w-0 flex-1 text-xs"
+      >
+        {options.map((name) => (
+          <option key={name} value={name}>
+            {name}
+            {name === slot.baked ? " (pack default)" : ""}
+          </option>
+        ))}
+      </Select>
+      {slot.value !== slot.baked && (
+        <button
+          onClick={() => onPick(slot.key, slot.baked)}
+          className="shrink-0 text-[10px] uppercase tracking-wide text-amber-450/80 hover:text-amber-450"
+          title={`Back to the pack default (${slot.baked})`}
+        >
+          swapped — reset
+        </button>
+      )}
+    </div>
+  );
+}
+
 function WorkflowRow({
   wf,
   availableLoras,
   onMakeDefault,
   onSaveLoras,
+  onSaveModels,
 }: {
   wf: WorkflowManifest;
   availableLoras: string[] | undefined;
   onMakeDefault: (wf: WorkflowManifest) => void;
   onSaveLoras: (packId: string, entries: EngineLoraEntry[]) => void;
+  onSaveModels: (packId: string, slots: Record<string, string>) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [stack, setStack] = useState<EngineLoraRow[]>(wf.loras ?? []);
@@ -119,6 +172,15 @@ function WorkflowRow({
     setAdded(nextAdded);
     onSaveLoras(wf.id, buildEngineLoraEntries(nextStack, nextAdded));
   };
+  const pickModel = (key: string, value: string) => {
+    // Rebuild the pack's whole override map from the slots: value ≠ baked → keep.
+    const slots: Record<string, string> = {};
+    for (const s of wf.models ?? []) {
+      const v = s.key === key ? value : s.value;
+      if (v && v !== s.baked) slots[s.key] = v;
+    }
+    onSaveModels(wf.id, slots);
+  };
   const inChain = new Set([
     ...stack.map((r) => r.lora_name),
     ...added.map((a) => a.lora_name),
@@ -142,7 +204,7 @@ function WorkflowRow({
           )}
         </div>
         {wf.default && <Badge tone="amber">default</Badge>}
-        {wf.loras_modified && <Badge tone="fog">customized</Badge>}
+        {(wf.loras_modified || wf.models_modified) && <Badge tone="fog">customized</Badge>}
         <Badge tone="fog">{wf.kind}</Badge>
         {available ? (
           <Badge tone="green">ready</Badge>
@@ -171,6 +233,19 @@ function WorkflowRow({
                   </li>
                 ))}
               </ul>
+            </div>
+          )}
+
+          {(wf.models ?? []).length > 0 && (
+            <div className="mb-3">
+              <span className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-fog">
+                Model
+              </span>
+              <div className="space-y-1.5">
+                {(wf.models ?? []).map((slot) => (
+                  <ModelSlotRow key={slot.key} slot={slot} onPick={pickModel} />
+                ))}
+              </div>
             </div>
           )}
 
@@ -323,7 +398,7 @@ function WorkflowRow({
             </div>
           )}
 
-          {wf.supports_characters && (
+          {(wf.supports_loras ?? wf.supports_characters) && (
             <div className="mt-2 flex items-center gap-2">
               <Select
                 value={newLora}
@@ -467,6 +542,29 @@ export function SettingsPage() {
     if (entries.length) next[packId] = entries;
     else delete next[packId];
     saveEngineLorasMut.mutate(next);
+  };
+
+  const saveEngineModelsMut = useMutation({
+    mutationFn: (next: Record<string, Record<string, string>>) =>
+      apiPut("/api/settings", {
+        values: { engine_models: Object.keys(next).length ? JSON.stringify(next) : "" },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings"] });
+      qc.invalidateQueries({ queryKey: ["workflows"] });
+    },
+    onError: (e: Error) => {
+      toast(e.message, "error");
+      qc.invalidateQueries({ queryKey: ["workflows"] });
+    },
+  });
+
+  // Merge one engine's model choices into the whole setting.
+  const saveEngineModels = (packId: string, slots: Record<string, string>) => {
+    const next = parseEngineModelsSetting(getSetting(settings, "engine_models"));
+    if (Object.keys(slots).length) next[packId] = slots;
+    else delete next[packId];
+    saveEngineModelsMut.mutate(next);
   };
 
   const makeDefault = useMutation({
@@ -763,8 +861,9 @@ export function SettingsPage() {
           <h2 className="text-sm font-semibold">Engines</h2>
           <p className="mt-0.5 text-xs text-fog">
             Rendering styles installed on this system — the <em>default</em> one renders
-            shots that don't pick an engine. Expand a row to see and edit the LoRAs it
-            runs with. Add more engines by dropping a pack into the workflows folder.
+            shots that don't pick an engine. Expand a row to swap its base model and
+            edit the LoRAs it runs with. Add more engines by dropping a pack into the
+            workflows folder.
           </p>
         </header>
         {wfError ? (
@@ -787,6 +886,7 @@ export function SettingsPage() {
                 availableLoras={availableLoras}
                 onMakeDefault={(w) => makeDefault.mutate(w)}
                 onSaveLoras={saveEngineLoras}
+                onSaveModels={saveEngineModels}
               />
             ))}
           </ul>

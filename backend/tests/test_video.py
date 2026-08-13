@@ -210,6 +210,72 @@ def test_render_video_updates_motion_prompt(client, app, settings, fake_client):
     assert fake_client.graph["6"]["inputs"]["prompt"] == "zxqdog dog sprints away"
 
 
+def test_video_gen_applies_models_loras_and_last_frame(client, app, settings, fake_client):
+    """engine_models swap + engine_loras splice + frame_position=last, together."""
+    ids = seed_shot(app, settings)
+    r = client.put(
+        "/api/settings",
+        json={
+            "values": {
+                "engine_models": json.dumps(
+                    {"minimax-h3-i2v": {"unet": "pinkcherryMMH3_06Beta.safetensors"}}
+                ),
+                "engine_loras": json.dumps(
+                    {"minimax-h3-i2v": [{"lora_name": "mm/style.safetensors", "strength": 0.7}]}
+                ),
+            }
+        },
+    )
+    assert r.status_code == 200, r.text
+
+    r = client.post(
+        f"/api/shots/{ids['shot_id']}/render-video", json={"frame_position": "last"}
+    )
+    assert r.status_code == 200
+    # frame choice persists on the shot like the motion prompt does
+    assert client.get(f"/api/shots/{ids['shot_id']}").json()["frame_position"] == "last"
+    job = wait_for(client, r.json()["job_id"], {"done", "failed"})
+    assert job["status"] == "done", job["error"]
+
+    graph = fake_client.graph
+    # model swap landed on the UNET loader
+    assert graph["1"]["inputs"]["unet_name"] == "pinkcherryMMH3_06Beta.safetensors"
+    # extra LoRA spliced as a model-only loader between UNET and the sage patch
+    lora = graph["engine_lora_0"]
+    assert lora["class_type"] == "LoraLoaderModelOnly"
+    assert lora["inputs"]["lora_name"] == "mm/style.safetensors"
+    assert lora["inputs"]["strength_model"] == 0.7
+    assert lora["inputs"]["model"] == ["1", 0]
+    assert "clip" not in lora["inputs"]
+    assert graph["7"]["inputs"]["model"] == ["engine_lora_0", 0]
+    # the still now conditions the END of the clip
+    assert "first_frame" not in graph["6"]["inputs"]
+    assert graph["6"]["inputs"]["last_frame"] == ["5", 0]
+    # and the choice is recorded on the take's params
+    takes = client.get(f"/api/shots/{ids['shot_id']}/takes").json()
+    take = next(t for t in takes if t["kind"] == "video")
+    assert json.loads(take["params_json"])["frame_position"] == "last"
+
+
+def test_shot_frame_position_patch_drives_default_render(client, app, settings, fake_client):
+    ids = seed_shot(app, settings)
+    # stored on the shot via the normal autosave PATCH
+    r = client.patch(f"/api/shots/{ids['shot_id']}", json={"frame_position": "last"})
+    assert r.status_code == 200 and r.json()["frame_position"] == "last"
+    assert (
+        client.patch(
+            f"/api/shots/{ids['shot_id']}", json={"frame_position": "sideways"}
+        ).status_code
+        == 422
+    )
+    # a render with no explicit frame_position uses the stored value
+    r = client.post(f"/api/shots/{ids['shot_id']}/render-video", json={})
+    job = wait_for(client, r.json()["job_id"], {"done", "failed"})
+    assert job["status"] == "done", job["error"]
+    assert "first_frame" not in fake_client.graph["6"]["inputs"]
+    assert fake_client.graph["6"]["inputs"]["last_frame"] == ["5", 0]
+
+
 def test_render_video_requires_approval(client, app, settings, fake_client):
     ids = seed_shot(app, settings, approved=False)
     r = client.post(f"/api/shots/{ids['shot_id']}/render-video", json={})

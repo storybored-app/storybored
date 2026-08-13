@@ -37,6 +37,7 @@ class Shot(SQLModel, table=True):
     dialogue: str = ""
     duration_s: float = 4.0
     motion_prompt: str = ""  # for the video pass
+    frame_position: str = "first"  # first | last — where the still anchors the clip
     status: str = "draft"  # draft | queued | generated | approved
     picked_take_id: int | None = None
     video_take_id: int | None = None

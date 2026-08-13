@@ -18,7 +18,7 @@ from pathlib import Path
 
 from storybored.config import Settings
 from storybored.engine.comfy_client import ComfyClient, ComfyError
-from storybored.engine.graph import lora_chain
+from storybored.engine.graph import lora_chain, lora_injection_spec
 
 log = logging.getLogger("storybored.engine")
 
@@ -83,6 +83,49 @@ async def pack_availability(pack: WorkflowPack, client: ComfyClient) -> dict:
     return {"available": not missing, "missing_models": missing, "error": None}
 
 
+async def pack_model_slots(
+    pack: WorkflowPack, overrides: dict[str, str], client: ComfyClient
+) -> list[dict]:
+    """The pack's swappable model slots for the UI.
+
+    Rows: {key, label, node, input, value, baked, options}. ``value`` is the
+    effective file (override or baked); ``options`` is the engine's dropdown
+    enum for that loader input ([] when the engine is unreachable).
+    """
+    slots = pack.manifest.get("model_slots") or []
+    if not slots:
+        return []
+    try:
+        graph = pack.load_graph()
+    except (OSError, json.JSONDecodeError):
+        return []
+    rows: list[dict] = []
+    for slot in slots:
+        key = str(slot.get("key", ""))
+        node_id = str(slot.get("node", ""))
+        input_name = str(slot.get("input", ""))
+        node = graph.get(node_id)
+        if not key or node is None or not input_name:
+            continue
+        baked = str((node.get("inputs") or {}).get(input_name, ""))
+        try:
+            options = await client.model_enum(str(node.get("class_type", "")), input_name)
+        except ComfyError:
+            options = []
+        rows.append(
+            {
+                "key": key,
+                "label": str(slot.get("label", key)),
+                "node": node_id,
+                "input": input_name,
+                "value": overrides.get(key) or baked,
+                "baked": baked,
+                "options": options,
+            }
+        )
+    return rows
+
+
 def pack_lora_stack(pack: WorkflowPack, overrides: list[dict]) -> tuple[list[dict], list[dict]]:
     """(baked stack with overrides applied, added entries) for the UI.
 
@@ -94,7 +137,8 @@ def pack_lora_stack(pack: WorkflowPack, overrides: list[dict]) -> tuple[list[dic
     except (OSError, json.JSONDecodeError):
         return [], []
     by_node = {str(e["node"]): e for e in overrides if e.get("node")}
-    disable = {str(n) for n in (pack.manifest.get("character_injection") or {}).get("disable_nodes") or []}
+    injection = pack.manifest.get("character_injection") or {}
+    disable = {str(n) for n in injection.get("disable_nodes") or []}
     stack: list[dict] = []
     for node_id in lora_chain(graph):
         inputs = graph[node_id].get("inputs") or {}
@@ -127,12 +171,13 @@ async def list_workflows(
     comfy_url: str,
     default_ids: dict[str, str] | None = None,
     engine_loras: dict[str, list[dict]] | None = None,
+    engine_models: dict[str, dict[str, str]] | None = None,
 ) -> list[dict]:
     """Registry payload for GET /api/workflows.
 
     ``default_ids`` maps kind → user-chosen default pack id ("" = unset, fall
-    back to the deterministic default). ``engine_loras`` is the parsed
-    engine_loras setting (pack id → override/append entries).
+    back to the deterministic default). ``engine_loras`` / ``engine_models``
+    are the parsed settings of the same names (keyed by pack id).
     """
     client = ComfyClient(comfy_url)
     packs = load_packs(settings)
@@ -146,6 +191,7 @@ async def list_workflows(
         manifest = pack.manifest
         availability = await pack_availability(pack, client)
         overrides = (engine_loras or {}).get(pack.id, [])
+        model_overrides = (engine_models or {}).get(pack.id, {})
         stack, added = pack_lora_stack(pack, overrides)
         kind = manifest.get("kind", "image")
         entry = {
@@ -155,12 +201,16 @@ async def list_workflows(
             "description": manifest.get("description", ""),
             "parameters": manifest.get("parameters", []),
             "supports_characters": bool(manifest.get("character_injection")),
+            "supports_loras": bool(lora_injection_spec(manifest)),
+            "supports_frame_position": bool(manifest.get("frame_conditioning")),
             "available": availability["available"],
             "missing_models": availability["missing_models"],
             "default": pack.id == defaults.get(kind),
             "loras": stack,
             "added_loras": added,
             "loras_modified": bool(overrides),
+            "models": await pack_model_slots(pack, model_overrides, client),
+            "models_modified": bool(model_overrides),
         }
         if availability["error"]:
             entry["error"] = availability["error"]

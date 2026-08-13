@@ -26,7 +26,9 @@ animatic MP4.
 - **Takes, not gambles** — generate multiple takes per shot, compare them in a
   gallery, pick one, approve the shot. Nothing is locked in until you say so.
 - **Image → video** — approved shots render to short video clips
-  (image-to-video, with an optional motion prompt per shot).
+  (image-to-video, with an optional motion prompt per shot). A Generate button
+  drafts the motion prompt from everything the shot knows, and the still can
+  anchor either the first or the *last* frame of the clip.
 - **Animatic export** — one click turns the board into a single MP4 in board
   order, honoring each shot's duration, with clip audio kept and stills held.
 - **Characters as `@handles`** — train a character once (or import an existing
@@ -38,11 +40,12 @@ animatic MP4.
 - **Engine packs** — generation engines are drop-in folders (a ComfyUI graph +
   a small manifest). Add your own workflow without touching StoryBored's code.
   See [docs/WORKFLOWS.md](docs/WORKFLOWS.md).
-- **LoRAs without JSON surgery** — every engine's built-in LoRA stack is
-  visible and editable in Settings (toggle, re-strength, append, one-click
-  reset to pack defaults), you can layer global *style LoRAs* over every
-  render, and pick the default engine — all stored as settings, never
-  touching pack files.
+- **LoRAs and models without JSON surgery** — every engine's built-in LoRA
+  stack is visible and editable in Settings (toggle, re-strength, append,
+  one-click reset to pack defaults) — video engines take extra LoRAs too — you
+  can layer global *style LoRAs* over every render, swap an engine's base
+  model for any installed finetune, and pick the default engine — all stored
+  as settings, never touching pack files.
 - **Graceful degradation** — no LLM configured? No trainer installed? Those
   features show a friendly "configure in Settings" hint instead of crashing.
 

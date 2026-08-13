@@ -1,10 +1,13 @@
 # OWNED-BY: llm-agent
-"""POST /api/shots/{id}/enhance — PromptSmith pass over a shot's rough notes.
+"""PromptSmith endpoints — LLM passes whose results land in visible editor
+fields; nothing is persisted here and prompts are never rewritten silently at
+render time (product rule).
 
-Returns the enhanced description; nothing is persisted. The client puts the
-text into the (visible, editable) description field and the user saves it —
-per product rule, prompts are never rewritten silently at render time.
+- POST /api/shots/{id}/enhance          rough notes → polished image prompt
+- POST /api/shots/{id}/generate-motion  shot details → MiniMax motion prompt
 """
+
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -15,6 +18,7 @@ from storybored.config import Settings
 from storybored.db import get_session
 from storybored.llm.client import LLMError, LLMNotConfiguredError, get_llm_config
 from storybored.llm.enhance import build_notes, enhance_description
+from storybored.llm.motion import build_motion_notes, generate_motion_prompt
 from storybored.models import Scene
 
 router = APIRouter(prefix="/api", tags=["enhance"])
@@ -63,3 +67,60 @@ def enhance_shot(
     except LLMError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"description": enhanced}
+
+
+class MotionRequest(BaseModel):
+    """Unsaved editor state wins over stored fields when provided."""
+
+    description: str | None = None
+    shot_type: str | None = None
+    camera: str | None = None
+    dialogue: str | None = None
+    motion_prompt: str | None = None
+    frame_position: Literal["first", "last"] | None = None
+
+
+@router.post("/shots/{shot_id}/generate-motion")
+def generate_motion(
+    shot_id: int,
+    request: Request,
+    body: MotionRequest | None = None,
+    session: Session = Depends(get_session),
+):
+    settings: Settings = request.app.state.settings
+    shot = get_shot_or_404(session, shot_id)
+    body = body or MotionRequest()
+
+    description = (body.description if body.description is not None else shot.description) or ""
+    if not description.strip():
+        raise HTTPException(
+            status_code=400, detail="shot needs a description before generating motion"
+        )
+
+    try:
+        config = get_llm_config(session, settings)
+    except LLMNotConfiguredError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    rough_motion = (
+        body.motion_prompt if body.motion_prompt is not None else shot.motion_prompt
+    ) or ""
+    scene = session.get(Scene, shot.scene_id)
+    notes = build_motion_notes(
+        description,
+        shot_type=body.shot_type if body.shot_type is not None else shot.shot_type,
+        camera=body.camera if body.camera is not None else shot.camera,
+        motion_prompt=rough_motion,
+        dialogue=body.dialogue if body.dialogue is not None else shot.dialogue,
+        duration_s=shot.duration_s,
+        scene_slugline=scene.slugline if scene else "",
+        scene_description=scene.description if scene else "",
+        frame_position=body.frame_position or shot.frame_position or "first",
+    )
+    try:
+        motion = generate_motion_prompt(config, notes, rough_motion)
+    except LLMNotConfiguredError as exc:  # pragma: no cover - config resolved above
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except LLMError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"motion_prompt": motion}

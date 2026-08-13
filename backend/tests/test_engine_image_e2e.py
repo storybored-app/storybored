@@ -246,6 +246,40 @@ def test_workflows_payload_reports_stack_and_default(client, fake_comfy):  # noq
     assert basic["loras_modified"] is False
 
 
+def test_workflows_payload_reports_model_slots(client, fake_comfy):  # noqa: F811
+    r = client.put(
+        "/api/settings",
+        json={
+            "values": {
+                "engine_models": json.dumps(
+                    {"krea2-realism": {"unet": "minimax_h3_fl2va_pruned_nvfp4.safetensors"}}
+                )
+            }
+        },
+    )
+    assert r.status_code == 200, r.text
+
+    workflows = {w["id"]: w for w in client.get("/api/workflows").json()}
+    realism = workflows["krea2-realism"]
+    assert realism["models_modified"] is True
+    slot = {m["key"]: m for m in realism["models"]}["unet"]
+    assert slot["baked"] == "krea2_raw_fp8_scaled.safetensors"
+    assert slot["value"] == "minimax_h3_fl2va_pruned_nvfp4.safetensors"  # override wins
+    assert slot["node"] == "4" and slot["input"] == "unet_name"
+    assert "krea2_raw_fp8_scaled.safetensors" in slot["options"]
+
+    minimax = workflows["minimax-h3-i2v"]
+    assert minimax["models_modified"] is False
+    mm_slot = {m["key"]: m for m in minimax["models"]}["unet"]
+    assert mm_slot["value"] == mm_slot["baked"] == "minimax_h3_fl2va_pruned_nvfp4.safetensors"
+    # capability flags: video pack takes LoRAs + last-frame anchoring, no @characters
+    assert minimax["supports_loras"] is True
+    assert minimax["supports_characters"] is False
+    assert minimax["supports_frame_position"] is True
+    assert realism["supports_loras"] is True
+    assert realism["supports_frame_position"] is False
+
+
 def test_character_thumbnail_generation(client, app, settings, fake_comfy):  # noqa: F811
     hero = make_hero(client)
 

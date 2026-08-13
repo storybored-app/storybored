@@ -31,6 +31,7 @@ interface FormState {
   dialogue: string;
   duration_s: string;
   motion_prompt: string;
+  frame_position: string;
 }
 
 function formFromShot(s: Shot): FormState {
@@ -41,6 +42,7 @@ function formFromShot(s: Shot): FormState {
     dialogue: s.dialogue ?? "",
     duration_s: String(s.duration_s ?? 4),
     motion_prompt: s.motion_prompt ?? "",
+    frame_position: s.frame_position === "last" ? "last" : "first",
   };
 }
 
@@ -51,6 +53,8 @@ function diffForm(form: FormState, shot: Shot): Record<string, unknown> {
   if (form.camera !== (shot.camera ?? "")) patch.camera = form.camera;
   if (form.dialogue !== (shot.dialogue ?? "")) patch.dialogue = form.dialogue;
   if (form.motion_prompt !== (shot.motion_prompt ?? "")) patch.motion_prompt = form.motion_prompt;
+  if (form.frame_position !== (shot.frame_position === "last" ? "last" : "first"))
+    patch.frame_position = form.frame_position;
   const dur = parseFloat(form.duration_s);
   if (Number.isFinite(dur) && dur > 0 && dur !== shot.duration_s) patch.duration_s = dur;
   return patch;
@@ -268,6 +272,7 @@ export function ShotDrawer({
   }, [videoWorkflows, videoWf]);
 
   const selectedImageWf = imageWorkflows.find((w) => w.id === imageWf);
+  const selectedVideoWf = videoWorkflows.find((w) => w.id === videoWf);
 
   /* ---- autosaving form ---- */
   const [form, setForm] = useState<FormState | null>(shot ? formFromShot(shot) : null);
@@ -318,6 +323,23 @@ export function ShotDrawer({
     onError: (e: Error) => toast(`Enhance failed: ${e.message}`, "error"),
   });
   saveRef.current = save;
+
+  const generateMotion = useMutation({
+    mutationFn: () =>
+      apiPost<{ motion_prompt: string }>(`/api/shots/${shotId}/generate-motion`, {
+        description: form?.description,
+        shot_type: form?.shot_type,
+        camera: form?.camera,
+        dialogue: form?.dialogue,
+        motion_prompt: form?.motion_prompt,
+        frame_position: form?.frame_position === "last" ? "last" : "first",
+      }),
+    onSuccess: (r) => {
+      setForm((f) => (f ? { ...f, motion_prompt: r.motion_prompt } : f));
+      toast("Motion prompt drafted — review it, tweak anything, then it saves like any edit.", "success");
+    },
+    onError: (e: Error) => toast(`Generate failed: ${e.message}`, "error"),
+  });
 
   // The latest unsaved edit, kept so we can flush it on close / shot switch.
   const pendingRef = useRef<{ id: number; patch: Record<string, unknown> } | null>(null);
@@ -391,6 +413,7 @@ export function ShotDrawer({
       apiPost(`/api/shots/${shotId}/render-video`, {
         workflow_id: videoWf || undefined,
         motion_prompt: form?.motion_prompt || undefined,
+        frame_position: form?.frame_position === "last" ? "last" : "first",
       }),
     onSuccess: () => {
       toast("Video render queued.", "success");
@@ -654,13 +677,65 @@ export function ShotDrawer({
                   label="Motion"
                   hint="Describe how the shot should move — camera and subject."
                 >
-                  <MentionTextarea
-                    value={form.motion_prompt}
-                    onChange={(v) => setForm((f) => (f ? { ...f, motion_prompt: v } : f))}
-                    rows={2}
-                    placeholder="waves crash as the light sweeps past, slow dolly forward"
-                  />
+                  <div>
+                    <MentionTextarea
+                      value={form.motion_prompt}
+                      onChange={(v) => setForm((f) => (f ? { ...f, motion_prompt: v } : f))}
+                      rows={2}
+                      placeholder="waves crash as the light sweeps past, slow dolly forward"
+                    />
+                    <div className="mt-1.5 flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-fog">
+                        {generateMotion.isPending
+                          ? "PromptSmith is drafting the motion…"
+                          : ""}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => generateMotion.mutate()}
+                        busy={generateMotion.isPending}
+                        disabled={!form.description.trim()}
+                        title="Draft a motion prompt from everything this shot knows — description, camera, dialogue and frame anchor. The result lands here for you to review."
+                      >
+                        <Sparkles size={12} /> Generate
+                      </Button>
+                    </div>
+                  </div>
                 </Field>
+                {(selectedVideoWf?.supports_frame_position ?? false) && (
+                  <Field
+                    label="Still anchors"
+                    hint={
+                      form.frame_position === "last"
+                        ? "Motion builds toward your still — the clip ends on it."
+                        : "The clip starts on your still and moves forward from it."
+                    }
+                  >
+                    <div className="flex overflow-hidden rounded-md border border-line">
+                      {(
+                        [
+                          ["first", "First frame"],
+                          ["last", "Last frame"],
+                        ] as const
+                      ).map(([value, label]) => (
+                        <button
+                          key={value}
+                          onClick={() =>
+                            setForm((f) => (f ? { ...f, frame_position: value } : f))
+                          }
+                          className={`flex-1 px-3 py-1.5 text-xs font-medium transition-colors ${
+                            form.frame_position === value
+                              ? "bg-amber-450/15 text-amber-450"
+                              : "text-fog hover:text-mist"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+                )}
                 {videoWorkflows.length > 0 && (
                   <Field label="Engine">
                     <Select value={videoWf} onChange={(e) => setVideoWf(e.target.value)}>

@@ -1,7 +1,8 @@
 # OWNED-BY: export-agent
 """Video render + animatic export endpoints.
 
-- POST /api/shots/{id}/render-video      {workflow_id?, motion_prompt?} → {job_id}
+- POST /api/shots/{id}/render-video      {workflow_id?, motion_prompt?,
+                                          frame_position?} → {job_id}
 - POST /api/projects/{id}/render-videos  queue video_gen for every approved shot
                                          lacking a video take → {job_ids}
 - POST /api/projects/{id}/animatic       {scene_id?, title_cards?} → {job_id}
@@ -9,6 +10,7 @@
 """
 
 from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
@@ -26,6 +28,7 @@ router = APIRouter(prefix="/api", tags=["export"])
 class RenderVideoBody(BaseModel):
     workflow_id: str | None = None
     motion_prompt: str | None = None
+    frame_position: Literal["first", "last"] | None = None
 
 
 def _require_renderable(session: Session, shot: Shot) -> None:
@@ -58,8 +61,11 @@ def render_video(
     shot = get_shot_or_404(session, shot_id)
     _require_renderable(session, shot)
     body = body or RenderVideoBody()
-    if body.motion_prompt is not None:
-        shot.motion_prompt = body.motion_prompt
+    if body.motion_prompt is not None or body.frame_position is not None:
+        if body.motion_prompt is not None:
+            shot.motion_prompt = body.motion_prompt
+        if body.frame_position is not None:
+            shot.frame_position = body.frame_position
         session.add(shot)
         session.commit()
         session.refresh(shot)

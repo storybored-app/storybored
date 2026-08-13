@@ -6,7 +6,7 @@ from fake_llm import FakeLLM
 from sqlmodel import Session
 
 from storybored.llm.enhance import _clean, build_notes
-from storybored.models import Scene, Shot
+from storybored.models import Shot
 
 ENHANCED = (
     "Medium close-up of @nova at a rain-streaked diner window, head and "

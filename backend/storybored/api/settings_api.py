@@ -27,6 +27,7 @@ OVERRIDABLE = {
     "default_video_workflow",
     "style_loras",
     "engine_loras",
+    "engine_models",
 }
 
 
@@ -87,6 +88,29 @@ def _validate_engine_loras(raw: str) -> None:
             _check_lora_entry(item, allow_node=True)
 
 
+def _validate_engine_models(raw: str) -> None:
+    """engine_models: JSON object of pack id → {slot key: model filename}."""
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="engine_models must be valid JSON") from None
+    if not isinstance(data, dict):
+        raise HTTPException(
+            status_code=400, detail="engine_models must be a JSON object keyed by engine id"
+        )
+    for pack_id, slots in data.items():
+        if not isinstance(slots, dict):
+            raise HTTPException(
+                status_code=400, detail=f"engine_models['{pack_id}'] must be an object"
+            )
+        for key, name in slots.items():
+            if not isinstance(name, str) or not name.strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"engine_models['{pack_id}']['{key}'] must be a model filename",
+                )
+
+
 def _is_secret_key(key: str) -> bool:
     """Keys whose values must never be returned (API keys, tokens, secrets)."""
     return key == "llm_api_key" or key.endswith(("_key", "_token", "_secret"))
@@ -145,6 +169,8 @@ def put_settings(
             _validate_style_loras(value)
         if key == "engine_loras" and value:
             _validate_engine_loras(value)
+        if key == "engine_models" and value:
+            _validate_engine_models(value)
         row = session.get(Setting, key)
         if value is None or value == "":
             if row is not None:

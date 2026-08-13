@@ -73,6 +73,27 @@ def test_put_settings_validates_engine_loras(client):
     assert "engine_loras" not in client.get("/api/settings").json()["overrides"]
 
 
+def test_put_settings_validates_engine_models(client):
+    ok = '{"minimax-h3-i2v": {"unet": "pinkcherryMMH3_06Beta.safetensors"}}'
+    r = client.put("/api/settings", json={"values": {"engine_models": ok}})
+    assert r.status_code == 200, r.text
+    assert client.get("/api/settings").json()["overrides"]["engine_models"] == ok
+
+    for bad in (
+        "not json",
+        '["not", "an", "object"]',
+        '{"pack": "not an object"}',
+        '{"pack": {"unet": 3}}',
+        '{"pack": {"unet": "   "}}',
+    ):
+        r = client.put("/api/settings", json={"values": {"engine_models": bad}})
+        assert r.status_code == 400, bad
+
+    r = client.put("/api/settings", json={"values": {"engine_models": ""}})
+    assert r.status_code == 200
+    assert "engine_models" not in client.get("/api/settings").json()["overrides"]
+
+
 def test_put_settings_rejects_unknown_key(client):
     r = client.put("/api/settings", json={"values": {"evil_key": "http://attacker"}})
     assert r.status_code == 400

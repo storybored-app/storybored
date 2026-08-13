@@ -1,5 +1,7 @@
 """API request/response models."""
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -47,6 +49,7 @@ class ShotUpdate(BaseModel):
     dialogue: str | None = None
     duration_s: float | None = None
     motion_prompt: str | None = None
+    frame_position: Literal["first", "last"] | None = None
 
 
 class ShotReorder(BaseModel):

@@ -10,6 +10,10 @@ Flow (docs/CONTRACT.md):
        `@handle` mentions replaced by "{trigger} {class_word}"
      - `length` param ← payload override or the manifest default
      - seed ← payload override or random; persisted on the take
+     - engine_models / engine_loras settings ← model override + extra LoRAs
+       (spliced at the pack's `lora_injection` point, model-only loaders)
+     - shot.frame_position "last" ← the still anchors the END of the clip
+       (manifest `frame_conditioning` rewires the sampler's image input)
      - SaveVideo filename_prefix ← `storybored/take_{take_id}`
   4. Submit + poll. Video is slow: the wait ceiling is never below 15 minutes.
   5. Download the MP4 to DATA_DIR/media/{project}/{shot}/take_{id}.mp4, grab a
@@ -29,9 +33,17 @@ from storybored.api.settings_api import effective_setting
 from storybored.engine import registry
 from storybored.engine.comfy_client import ComfyCancelled, ComfyClient, ComfyError
 from storybored.engine.graph import (
+    added_engine_loras,
+    apply_engine_lora_overrides,
+    apply_model_overrides,
     apply_parameters,
+    inject_style_loras,
+    lora_injection_spec,
+    parse_engine_loras,
+    parse_engine_models,
     parse_mentions,
     set_filename_prefix,
+    set_frame_position,
     substitute_mentions,
 )
 from storybored.jobs.registry import register
@@ -157,6 +169,15 @@ async def video_gen(job, ctx):
         )
         by_handle = {c.handle: c for c in rows}
         comfy_url = effective_setting(session, settings, "comfyui_url")
+        engine_loras = parse_engine_loras(
+            effective_setting(session, settings, "engine_loras")
+        ).get(workflow_id, [])
+        engine_models = parse_engine_models(
+            effective_setting(session, settings, "engine_models")
+        ).get(workflow_id, {})
+        frame_position = str(
+            payload.get("frame_position") or shot.frame_position or "first"
+        )
 
     # -- workflow pack ---------------------------------------------------------
     pack = registry.get_pack(settings, workflow_id)
@@ -165,6 +186,10 @@ async def video_gen(job, ctx):
     manifest = pack.manifest
     if manifest.get("kind") != "video":
         raise RuntimeError(f"workflow '{workflow_id}' is not a video workflow")
+    if frame_position == "last" and not manifest.get("frame_conditioning"):
+        raise RuntimeError(
+            f"workflow '{workflow_id}' can't use the still as the last frame"
+        )
     base_graph = pack.load_graph()
 
     seed = int(user_params["seed"]) if user_params.get("seed") is not None else (
@@ -175,6 +200,7 @@ async def video_gen(job, ctx):
         str(user_params.get("prompt") or prompt_source), by_handle
     )
     params["seed"] = seed
+    params["frame_position"] = frame_position
 
     # -- pending take row --------------------------------------------------------
     take = Take(
@@ -203,6 +229,15 @@ async def video_gen(job, ctx):
         params["first_frame"] = _uploaded_name(upload)
 
         graph = apply_parameters(base_graph, manifest, params)
+        apply_model_overrides(graph, manifest, engine_models)
+        apply_engine_lora_overrides(graph, engine_loras)
+        inject_style_loras(
+            graph,
+            lora_injection_spec(manifest),
+            added_engine_loras(engine_loras),
+            id_prefix="engine_lora_",
+        )
+        set_frame_position(graph, manifest, frame_position)
         set_filename_prefix(graph, f"storybored/take_{take_id}")
 
         ctx.raise_if_cancelled()

@@ -7,7 +7,7 @@ from sqlmodel import Session
 from storybored.api.settings_api import effective_setting
 from storybored.db import get_session
 from storybored.engine import registry
-from storybored.engine.graph import parse_engine_loras
+from storybored.engine.graph import parse_engine_loras, parse_engine_models
 
 router = APIRouter(prefix="/api", tags=["workflows"])
 
@@ -21,4 +21,7 @@ async def list_workflows(request: Request, session: Session = Depends(get_sessio
         "video": effective_setting(session, settings, "default_video_workflow"),
     }
     engine_loras = parse_engine_loras(effective_setting(session, settings, "engine_loras"))
-    return await registry.list_workflows(settings, comfy_url, default_ids, engine_loras)
+    engine_models = parse_engine_models(effective_setting(session, settings, "engine_models"))
+    return await registry.list_workflows(
+        settings, comfy_url, default_ids, engine_loras, engine_models
+    )

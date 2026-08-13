@@ -12,14 +12,18 @@ from storybored.engine import registry
 from storybored.engine.graph import (
     added_engine_loras,
     apply_engine_lora_overrides,
+    apply_model_overrides,
     apply_parameters,
     inject_characters,
     inject_style_loras,
     lora_chain,
+    lora_injection_spec,
     parse_engine_loras,
+    parse_engine_models,
     parse_mentions,
     parse_style_loras,
     set_filename_prefix,
+    set_frame_position,
     substitute_mentions,
 )
 
@@ -293,6 +297,114 @@ def test_added_engine_loras_splice_before_styles():
     assert graph[style_node]["inputs"]["model"] == [added_node, 0]
     assert graph[char_node]["inputs"]["model"] == [style_node, 0]
     assert graph["sage"]["inputs"]["model"] == [char_node, 0]
+
+
+# -- video LoRAs (model-only loaders) ------------------------------------------
+
+
+def test_lora_injection_spec_prefers_explicit_over_character():
+    manifest, _ = load_pack("minimax-h3-i2v")
+    spec = lora_injection_spec(manifest)
+    assert spec == {"after_node": "1", "class_type": "LoraLoaderModelOnly"}
+    image_manifest, _ = load_pack("krea2-realism")
+    assert lora_injection_spec(image_manifest) is image_manifest["character_injection"]
+
+
+def test_model_only_lora_splice_on_video_pack():
+    manifest, graph = load_pack("minimax-h3-i2v")
+    injected = inject_style_loras(
+        graph,
+        lora_injection_spec(manifest),
+        [
+            {"lora_name": "mm/style_a.safetensors", "strength": 0.7},
+            {"lora_name": "mm/style_b.safetensors", "strength": 1.0},
+        ],
+        id_prefix="engine_lora_",
+    )
+    assert injected == ["engine_lora_0", "engine_lora_1"]
+    node = graph["engine_lora_0"]
+    assert node["class_type"] == "LoraLoaderModelOnly"
+    assert node["inputs"]["model"] == ["1", 0]
+    assert node["inputs"]["strength_model"] == 0.7
+    # model-only: no clip path, no clip strength
+    assert "clip" not in node["inputs"] and "strength_clip" not in node["inputs"]
+    # chain: 1 → engine_lora_0 → engine_lora_1 → sage-attention patch
+    assert graph["engine_lora_1"]["inputs"]["model"] == ["engine_lora_0", 0]
+    assert graph["7"]["inputs"]["model"] == ["engine_lora_1", 0]
+    # the CLIP path never routed through the chain and stays untouched
+    assert graph["6"]["inputs"]["clip"] == ["2", 0]
+
+
+def test_engine_lora_overrides_on_model_only_node():
+    graph = {
+        "vl": {
+            "class_type": "LoraLoaderModelOnly",
+            "inputs": {"lora_name": "x.safetensors", "strength_model": 1.0, "model": ["1", 0]},
+        }
+    }
+    apply_engine_lora_overrides(graph, [{"node": "vl", "enabled": False}])
+    assert graph["vl"]["inputs"]["strength_model"] == 0
+    assert "strength_clip" not in graph["vl"]["inputs"]
+    apply_engine_lora_overrides(graph, [{"node": "vl", "strength": 0.4, "enabled": True}])
+    assert graph["vl"]["inputs"]["strength_model"] == 0.4
+
+
+def test_lora_chain_includes_model_only_loaders():
+    manifest, graph = load_pack("minimax-h3-i2v")
+    inject_style_loras(
+        graph, lora_injection_spec(manifest),
+        [{"lora_name": "a.safetensors", "strength": 1.0}], id_prefix="vid_",
+    )
+    assert lora_chain(graph) == ["vid_0"]
+
+
+# -- model slots ---------------------------------------------------------------
+
+
+def test_parse_engine_models_defensive():
+    assert parse_engine_models("") == {}
+    assert parse_engine_models("not json") == {}
+    assert parse_engine_models('["list"]') == {}
+    assert parse_engine_models('{"pack": "not an object"}') == {}
+    raw = '{"minimax-h3-i2v": {"unet": "pink.safetensors", "bad": 3, "blank": "  "}}'
+    assert parse_engine_models(raw) == {"minimax-h3-i2v": {"unet": "pink.safetensors"}}
+
+
+def test_apply_model_overrides():
+    manifest, graph = load_pack("minimax-h3-i2v")
+    apply_model_overrides(graph, manifest, {"unet": "pinkcherryMMH3_06Beta.safetensors"})
+    assert graph["1"]["inputs"]["unet_name"] == "pinkcherryMMH3_06Beta.safetensors"
+    # unknown slot keys and empty overrides are ignored
+    before = json.dumps(graph, sort_keys=True)
+    apply_model_overrides(graph, manifest, {"ghost": "x.safetensors", "unet": ""})
+    assert json.dumps(graph, sort_keys=True) == before
+    # image packs expose the UNET slot too
+    manifest, graph = load_pack("krea2-realism")
+    apply_model_overrides(graph, manifest, {"unet": "krea2_turbo_int8_convrot.safetensors"})
+    assert graph["4"]["inputs"]["unet_name"] == "krea2_turbo_int8_convrot.safetensors"
+
+
+# -- frame position ------------------------------------------------------------
+
+
+def test_set_frame_position_first_is_noop():
+    manifest, graph = load_pack("minimax-h3-i2v")
+    before = json.dumps(graph, sort_keys=True)
+    set_frame_position(graph, manifest, "first")
+    assert json.dumps(graph, sort_keys=True) == before
+
+
+def test_set_frame_position_last_moves_the_image_input():
+    manifest, graph = load_pack("minimax-h3-i2v")
+    set_frame_position(graph, manifest, "last")
+    assert "first_frame" not in graph["6"]["inputs"]
+    assert graph["6"]["inputs"]["last_frame"] == ["5", 0]
+
+
+def test_set_frame_position_last_without_support_raises():
+    manifest, graph = load_pack("krea2-basic")  # no frame_conditioning
+    with pytest.raises(ValueError):
+        set_frame_position(graph, manifest, "last")
 
 
 def test_set_filename_prefix():

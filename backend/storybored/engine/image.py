@@ -24,10 +24,12 @@ from storybored.engine.comfy_client import ComfyCancelled, ComfyClient, ComfyErr
 from storybored.engine.graph import (
     added_engine_loras,
     apply_engine_lora_overrides,
+    apply_model_overrides,
     apply_parameters,
     inject_characters,
     inject_style_loras,
     parse_engine_loras,
+    parse_engine_models,
     parse_mentions,
     parse_style_loras,
     set_filename_prefix,
@@ -146,6 +148,9 @@ async def image_gen(job, ctx):
         engine_loras = parse_engine_loras(
             effective_setting(session, settings, "engine_loras")
         ).get(workflow_id, [])
+        engine_models = parse_engine_models(
+            effective_setting(session, settings, "engine_models")
+        ).get(workflow_id, {})
 
     pack = registry.get_pack(settings, workflow_id)
     if pack is None:
@@ -187,6 +192,7 @@ async def image_gen(job, ctx):
         prompt_id: str | None = None
         try:
             graph = apply_parameters(base_graph, manifest, params)
+            apply_model_overrides(graph, manifest, engine_models)
             apply_engine_lora_overrides(graph, engine_loras)
             injection = manifest.get("character_injection")
             # Splice order characters → styles → engine additions: each later
@@ -283,6 +289,9 @@ async def character_thumb(job, ctx):
         engine_loras = parse_engine_loras(
             effective_setting(session, settings, "engine_loras")
         ).get(workflow_id, [])
+        engine_models = parse_engine_models(
+            effective_setting(session, settings, "engine_models")
+        ).get(workflow_id, {})
 
     pack = registry.get_pack(settings, workflow_id)
     if pack is None:
@@ -301,6 +310,7 @@ async def character_thumb(job, ctx):
     }
 
     graph = apply_parameters(pack.load_graph(), manifest, params)
+    apply_model_overrides(graph, manifest, engine_models)
     apply_engine_lora_overrides(graph, engine_loras)
     injection = manifest.get("character_injection")
     inject_characters(graph, injection, [char] if char.lora_name else [])

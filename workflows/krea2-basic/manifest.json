@@ -12,6 +12,9 @@
     {"key": "steps", "label": "Steps", "type": "int", "node": "3", "input": "steps", "default": 8}
   ],
   "output_node": "9",
+  "model_slots": [
+    {"key": "unet", "label": "Base model", "node": "4", "input": "unet_name"}
+  ],
   "character_injection": {
     "after_node": "lora_distill",
     "disable_nodes": []

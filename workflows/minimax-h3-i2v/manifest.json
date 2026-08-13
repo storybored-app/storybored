@@ -13,6 +13,11 @@
     {"key": "seed", "type": "seed", "node": "10", "input": "noise_seed"}
   ],
   "output_node": "16",
+  "model_slots": [
+    {"key": "unet", "label": "Video model", "node": "1", "input": "unet_name"}
+  ],
+  "lora_injection": {"after_node": "1", "class_type": "LoraLoaderModelOnly"},
+  "frame_conditioning": {"node": "6", "first": "first_frame", "last": "last_frame"},
   "required_models": {
     "UNETLoader.unet_name": ["minimax_h3_fl2va_pruned_nvfp4.safetensors"],
     "CLIPLoader.clip_name": ["qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"],

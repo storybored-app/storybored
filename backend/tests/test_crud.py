@@ -1,8 +1,28 @@
 """Projects / scenes / shots lifecycle, reorder, board payload, approve guard."""
 
+from sqlalchemy import text
 from sqlmodel import Session
 
+from storybored.config import Settings
+from storybored.db import create_db_engine, init_db
 from storybored.models import Take
+
+
+def test_init_db_adds_new_columns_to_existing_tables(tmp_path):
+    """A pre-frame_position database gets the column on startup (SQLite has no
+    migrations — init_db carries a one-shot ADD COLUMN guard)."""
+    settings = Settings(_env_file=None, data_dir=str(tmp_path / "data"))
+    settings.data_path.mkdir(parents=True, exist_ok=True)
+    engine = create_db_engine(settings)
+    with engine.connect() as conn:
+        conn.execute(text("CREATE TABLE shot (id INTEGER PRIMARY KEY, scene_id INTEGER)"))
+        conn.execute(text("INSERT INTO shot (scene_id) VALUES (1)"))
+        conn.commit()
+    init_db(engine)
+    with engine.connect() as conn:
+        row = conn.execute(text("SELECT frame_position FROM shot")).fetchone()
+    assert row[0] == "first"
+    engine.dispose()
 
 
 def make_project(client, title="Test Film"):

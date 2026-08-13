@@ -71,8 +71,9 @@ Unset optional vars = feature gracefully degrades (UI shows "not configured", ne
 - **scene**: id, project_id FK, idx int, title, slugline="", description=""
 - **shot**: id, scene_id FK, idx int, description="", shot_type="" (free text: WIDE, MED, CU…),
   camera="", dialogue="", duration_s float=4.0, motion_prompt="" (for video pass),
-  status str in draft|queued|generated|approved, picked_take_id nullable,
-  video_take_id nullable
+  frame_position str="first" (first|last — whether the picked still opens or closes
+  the video clip), status str in draft|queued|generated|approved,
+  picked_take_id nullable, video_take_id nullable
 - **character**: id, name, handle unique (no @ stored), trigger, class_word="person",
   lora_name (ComfyUI dropdown name incl. subdir), lora_strength float=1.0,
   thumbnail_path nullable, notes="", status in ready|dataset|training|trained
@@ -104,7 +105,8 @@ Generation:
 - `POST /api/shots/{id}/generate {workflow_id?, n_takes?=1, params?{}}` → {job_id}
 - `GET /api/shots/{id}/takes` · `POST /api/takes/{id}/pick` · `DELETE /api/takes/{id}`
 - `POST /api/shots/{id}/approve` / `POST /api/shots/{id}/unapprove`
-- `POST /api/shots/{id}/render-video {workflow_id?, motion_prompt?}` → {job_id}
+- `POST /api/shots/{id}/render-video {workflow_id?, motion_prompt?, frame_position?}` →
+  {job_id}; motion_prompt/frame_position persist onto the shot before the job queues
 - `POST /api/projects/{id}/render-videos {}` → queue video for every approved shot lacking one
 - `POST /api/projects/{id}/animatic` → {job_id}; result_json.file_path = MP4 under DATA_DIR/exports
 - `GET /api/projects/{id}/exports`
@@ -124,6 +126,16 @@ Characters:
   reviewing the prep report). On train completion: character.status=trained,
   lora_name=final checkpoint, strength=1.0 (user-adjustable).
 
+LLM / PromptSmith (results land in visible editor fields; nothing persisted here):
+- `POST /api/shots/{id}/enhance {description?, shot_type?, camera?}` →
+  {description} — rough notes → one polished image prompt (@handles preserved,
+  one nudge retry, then 502)
+- `POST /api/shots/{id}/generate-motion {description?, shot_type?, camera?,
+  dialogue?, motion_prompt?, frame_position?}` → {motion_prompt} — everything the
+  shot knows → one MiniMax i2v motion prompt ending in an "Audio:" line;
+  frame-position-aware (still opens the clip vs. clip arrives at the still);
+  @handles from the author's own rough motion notes survive or 502
+
 LLM / breakdown:
 - `POST /api/breakdown {project_id, script_text}` (synchronous, timeout 300s) →
   `{scenes:[{title, slugline, shots:[{description, shot_type, camera, dialogue,
@@ -139,12 +151,17 @@ Infra:
   plus `default: bool` (per kind, from default_image/video_workflow), the pack's baked
   `loras: [{node, lora_name, strength, baked_strength, enabled, disabled_with_character}]`
   in chain order with user overrides applied, `added_loras: [{lora_name, strength,
-  enabled}]`, and `loras_modified: bool`
+  enabled}]`, `loras_modified: bool`, the pack's swappable
+  `models: [{key, label, node, input, value, baked, options}]` (options = the engine's
+  dropdown enum for that loader input) with `models_modified: bool`, and capability
+  flags `supports_loras` (pack declares a LoRA splice point) +
+  `supports_frame_position` (video pack can anchor the still as the LAST frame)
 - `GET/PUT /api/settings` · `GET /api/health` → {comfy, llm, trainer, ffmpeg} statuses.
   JSON-valued settings, validated on PUT: `style_loras` (list of {lora_name, strength?,
-  enabled?} layered into every image render) and `engine_loras` (object: pack id → list
+  enabled?} layered into every image render), `engine_loras` (object: pack id → list
   of baked-node overrides {node, strength?, enabled?} and/or appended {lora_name,
-  strength?, enabled?})
+  strength?, enabled?}), and `engine_models` (object: pack id → {slot key: model
+  filename} written onto the pack's `model_slots` loader inputs at render time)
 - `GET /api/media/{path}` — serves files under DATA_DIR (path-traversal-safe!)
 
 ## Workflow packs (the modularity story — docs/WORKFLOWS.md explains for users)
@@ -178,11 +195,21 @@ Infra:
   `"{trigger} {class_word}"` before writing the prompt param.
 - **Runtime LoRA layers** (engine/graph.py, all DB-settings-driven so pack files
   stay pristine): `engine_loras` node overrides are written onto the baked
-  LoraLoaders (enabled:false → both strengths 0; unknown node ids ignored), then
+  LoRA loaders (enabled:false → strengths 0; unknown node ids ignored), then
   extra LoRAs splice at `character_injection.after_node` in call order
   characters → styles → engine additions, which yields the render chain
   **base stack → engine additions → style LoRAs → character LoRAs** (identity
   last). A malformed setting parses to empty — it must never sink a render.
+  Video packs declare `lora_injection {after_node, class_type?}` instead
+  (minimax uses `LoraLoaderModelOnly` after the UNET loader — no clip path);
+  `engine_loras` appends/overrides apply there the same way.
+- **Model slots** (engine/graph.py): manifest `model_slots [{key, label, node,
+  input}]` names swappable loader inputs (e.g. the UNET); the `engine_models`
+  setting ({pack id → {key: filename}}) is written onto those inputs at render
+  time in image_gen, character_thumb and video_gen. Unknown keys ignored.
+- **Frame conditioning** (video packs): manifest `frame_conditioning {node,
+  first, last}`; shot.frame_position="last" moves the sampler's first-frame
+  image input onto the last-frame input so the clip ends on the still.
 - Users add engines by dropping a folder into `workflows/` (also scanned:
   `DATA_DIR/workflows/`). Registry validates required_models against /object_info
   and flags unavailable packs in the UI instead of hiding them.
