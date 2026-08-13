@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from storybored.api import (
     breakdown,
     characters,
+    enhance,
     export,
     generate,
     health,
@@ -83,6 +84,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         jobs,
         generate,
         breakdown,
+        enhance,
         export,
         settings_api,
         workflows_api,

@@ -298,6 +298,20 @@ export function ShotDrawer({
     onError: (e: Error) => toast(`Couldn't save: ${e.message}`, "error"),
   });
   const saveRef = useRef(save);
+
+  const enhance = useMutation({
+    mutationFn: () =>
+      apiPost<{ description: string }>(`/api/shots/${shotId}/enhance`, {
+        description: form?.description,
+        shot_type: form?.shot_type,
+        camera: form?.camera,
+      }),
+    onSuccess: (r) => {
+      setForm((f) => (f ? { ...f, description: r.description } : f));
+      toast("Prompt enhanced — review it, tweak anything, then it saves like any edit.", "success");
+    },
+    onError: (e: Error) => toast(`Enhance failed: ${e.message}`, "error"),
+  });
   saveRef.current = save;
 
   // The latest unsaved edit, kept so we can flush it on close / shot switch.
@@ -457,12 +471,29 @@ export function ShotDrawer({
             {/* fields */}
             <div className="space-y-3.5">
               <Field label="Description" hint="Type @ to reference a character.">
-                <MentionTextarea
-                  value={form.description}
-                  onChange={(v) => setForm((f) => (f ? { ...f, description: v } : f))}
-                  rows={3}
-                  placeholder="A lighthouse keeper climbs the spiral stairs, lantern in hand…"
-                />
+                <div>
+                  <MentionTextarea
+                    value={form.description}
+                    onChange={(v) => setForm((f) => (f ? { ...f, description: v } : f))}
+                    rows={3}
+                    placeholder="A lighthouse keeper climbs the spiral stairs, lantern in hand…"
+                  />
+                  <div className="mt-1.5 flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-fog">
+                      {enhance.isPending ? "PromptSmith is polishing your notes…" : ""}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => enhance.mutate()}
+                      busy={enhance.isPending}
+                      disabled={!form.description.trim()}
+                      title="Rewrite these notes as a polished image prompt — the result lands here for you to review"
+                    >
+                      <Sparkles size={12} /> Enhance
+                    </Button>
+                  </div>
+                </div>
               </Field>
               <div className="grid grid-cols-3 gap-3">
                 <Field label="Shot type">
