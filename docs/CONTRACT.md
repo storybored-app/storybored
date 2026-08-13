@@ -131,8 +131,16 @@ Infra:
 - `GET /api/events` — SSE. Event types: `job` (full job row on any change),
   `shot` (shot row on status/take change), `take`, `character`. data = JSON row.
 - `GET /api/workflows` → registry with per-workflow `available: bool` +
-  `missing_models: [str]` (validated against ComfyUI /object_info enums, cached 60s)
-- `GET/PUT /api/settings` · `GET /api/health` → {comfy, llm, trainer, ffmpeg} statuses
+  `missing_models: [str]` (validated against ComfyUI /object_info enums, cached 60s),
+  plus `default: bool` (per kind, from default_image/video_workflow), the pack's baked
+  `loras: [{node, lora_name, strength, baked_strength, enabled, disabled_with_character}]`
+  in chain order with user overrides applied, `added_loras: [{lora_name, strength,
+  enabled}]`, and `loras_modified: bool`
+- `GET/PUT /api/settings` · `GET /api/health` → {comfy, llm, trainer, ffmpeg} statuses.
+  JSON-valued settings, validated on PUT: `style_loras` (list of {lora_name, strength?,
+  enabled?} layered into every image render) and `engine_loras` (object: pack id → list
+  of baked-node overrides {node, strength?, enabled?} and/or appended {lora_name,
+  strength?, enabled?})
 - `GET /api/media/{path}` — serves files under DATA_DIR (path-traversal-safe!)
 
 ## Workflow packs (the modularity story — docs/WORKFLOWS.md explains for users)
@@ -164,6 +172,13 @@ Infra:
   `disable_nodes`: set strength_model/strength_clip to 0 while a character LoRA is
   active (style LoRAs that fight identity). Prompt text: replace each `@handle` with
   `"{trigger} {class_word}"` before writing the prompt param.
+- **Runtime LoRA layers** (engine/graph.py, all DB-settings-driven so pack files
+  stay pristine): `engine_loras` node overrides are written onto the baked
+  LoraLoaders (enabled:false → both strengths 0; unknown node ids ignored), then
+  extra LoRAs splice at `character_injection.after_node` in call order
+  characters → styles → engine additions, which yields the render chain
+  **base stack → engine additions → style LoRAs → character LoRAs** (identity
+  last). A malformed setting parses to empty — it must never sink a render.
 - Users add engines by dropping a folder into `workflows/` (also scanned:
   `DATA_DIR/workflows/`). Registry validates required_models against /object_info
   and flags unavailable packs in the UI instead of hiding them.

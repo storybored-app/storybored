@@ -159,6 +159,44 @@ Prompt side: `@sam` in the description becomes Sam's `"{trigger} {class_word}"`
 (e.g. `"zxsam person"`) before the prompt is written into the graph — the
 trigger token is what the LoRA was trained to respond to.
 
+## Runtime LoRA layers: what users can change without touching your pack
+
+Your pack's files are never edited by the app. Instead, Settings stores two
+JSON settings that are applied to the graph at render time, so users can tune
+an engine from the UI and always get back to your defaults with one click:
+
+- **Per-engine edits** (Settings → Engines → expand a row): every `LoraLoader`
+  in your graph is listed in chain order with its strength. Users can toggle
+  any of them off (both strengths forced to 0 — render-identical to removing
+  the node), change strengths, or **append** extra LoRAs to the engine. Stored
+  in the `engine_loras` setting keyed by pack id; overrides reference your
+  node ids, so renaming a node in a pack update simply makes stale overrides
+  inert (unknown ids are ignored, never fatal).
+- **Style LoRAs** (Settings → Style LoRAs): a global list layered into *every*
+  image render regardless of engine, each with its own on/off toggle and
+  strength. Stored in the `style_loras` setting.
+
+Both kinds of extra LoRA splice into the graph at your
+`character_injection.after_node` — the same seam characters use. The final
+chain order is always:
+
+```
+your baked stack → engine additions → style LoRAs → character LoRAs → sampler
+```
+
+Character LoRAs come last on purpose: identity wins over style. Two
+consequences for pack authors:
+
+1. `after_node` is the seam for *all* runtime LoRA insertion, not just
+   characters — put it after the last LoRA you ship, even in a pack that
+   doesn't target characters.
+2. A pack without `character_injection` still gets per-node strength/off
+   overrides, but users can't append LoRAs to it (there's no declared seam).
+
+The Engines list also marks which pack is the **default** per kind (used
+whenever a shot doesn't pick an engine explicitly) and lets users change it —
+backed by the `default_image_workflow` / `default_video_workflow` settings.
+
 ## Worked example: packaging your own txt2img workflow
 
 Say you have a plain SDXL-style workflow you like. Export it in API format:
@@ -224,4 +262,7 @@ shows up, availability-checked against your ComfyUI. That's the whole process.
 - [ ] `required_models` covers every model file the graph loads — this is what
       gives users a useful "missing: …" message instead of a cryptic ComfyUI
       error.
+- [ ] `character_injection.after_node` points at the *last* LoRA in your chain —
+      it's the seam for characters, style LoRAs, and user-appended LoRAs alike
+      (see "Runtime LoRA layers" above).
 - [ ] No absolute paths, hostnames, or personal LoRA names in either file.

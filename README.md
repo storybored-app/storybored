@@ -38,6 +38,11 @@ animatic MP4.
 - **Engine packs** — generation engines are drop-in folders (a ComfyUI graph +
   a small manifest). Add your own workflow without touching StoryBored's code.
   See [docs/WORKFLOWS.md](docs/WORKFLOWS.md).
+- **LoRAs without JSON surgery** — every engine's built-in LoRA stack is
+  visible and editable in Settings (toggle, re-strength, append, one-click
+  reset to pack defaults), you can layer global *style LoRAs* over every
+  render, and pick the default engine — all stored as settings, never
+  touching pack files.
 - **Graceful degradation** — no LLM configured? No trainer installed? Those
   features show a friendly "configure in Settings" hint instead of crashing.
 
