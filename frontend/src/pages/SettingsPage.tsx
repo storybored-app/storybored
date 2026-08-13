@@ -225,31 +225,34 @@ function WorkflowRow({
                       off with @characters
                     </span>
                   )}
-                  <Input
-                    type="number"
-                    step={0.05}
-                    min={-5}
-                    max={5}
-                    value={row.strength}
-                    onChange={(e) =>
-                      setStack(
-                        stack.map((x, j) =>
-                          j === i
-                            ? { ...x, strength: Number(e.target.value) || 0 }
-                            : x,
-                        ),
-                      )
-                    }
-                    onBlur={() =>
-                      onSaveLoras(wf.id, buildEngineLoraEntries(stack, added))
-                    }
-                    className="h-7 w-20 text-xs"
-                    title={
-                      row.strength !== row.baked_strength
-                        ? `Strength (pack default ${row.baked_strength})`
-                        : "Strength"
-                    }
-                  />
+                  {/* wrapper constrains width — the Input's own w-full wins over a w-* override */}
+                  <div className="w-20 shrink-0">
+                    <Input
+                      type="number"
+                      step={0.05}
+                      min={-5}
+                      max={5}
+                      value={row.strength}
+                      onChange={(e) =>
+                        setStack(
+                          stack.map((x, j) =>
+                            j === i
+                              ? { ...x, strength: Number(e.target.value) || 0 }
+                              : x,
+                          ),
+                        )
+                      }
+                      onBlur={() =>
+                        onSaveLoras(wf.id, buildEngineLoraEntries(stack, added))
+                      }
+                      className="h-7 text-xs"
+                      title={
+                        row.strength !== row.baked_strength
+                          ? `Strength (pack default ${row.baked_strength})`
+                          : "Strength"
+                      }
+                    />
+                  </div>
                 </div>
               ))}
               {added.map((a, i) => (
@@ -280,27 +283,29 @@ function WorkflowRow({
                   <span className="shrink-0 text-[10px] uppercase tracking-wide text-amber-450/80">
                     added
                   </span>
-                  <Input
-                    type="number"
-                    step={0.05}
-                    min={-5}
-                    max={5}
-                    value={a.strength}
-                    onChange={(e) =>
-                      setAdded(
-                        added.map((x, j) =>
-                          j === i
-                            ? { ...x, strength: Number(e.target.value) || 0 }
-                            : x,
-                        ),
-                      )
-                    }
-                    onBlur={() =>
-                      onSaveLoras(wf.id, buildEngineLoraEntries(stack, added))
-                    }
-                    className="h-7 w-20 text-xs"
-                    title="Strength"
-                  />
+                  <div className="w-20 shrink-0">
+                    <Input
+                      type="number"
+                      step={0.05}
+                      min={-5}
+                      max={5}
+                      value={a.strength}
+                      onChange={(e) =>
+                        setAdded(
+                          added.map((x, j) =>
+                            j === i
+                              ? { ...x, strength: Number(e.target.value) || 0 }
+                              : x,
+                          ),
+                        )
+                      }
+                      onBlur={() =>
+                        onSaveLoras(wf.id, buildEngineLoraEntries(stack, added))
+                      }
+                      className="h-7 text-xs"
+                      title="Strength"
+                    />
+                  </div>
                   <button
                     onClick={() =>
                       commit(
@@ -700,23 +705,25 @@ export function SettingsPage() {
               >
                 {s.lora_name}
               </span>
-              <Input
-                type="number"
-                step={0.05}
-                min={-5}
-                max={5}
-                value={s.strength}
-                onChange={(e) =>
-                  setStyleLoras(
-                    styleLoras.map((x, j) =>
-                      j === i ? { ...x, strength: Number(e.target.value) || 0 } : x,
-                    ),
-                  )
-                }
-                onBlur={() => saveStyleLoras.mutate(styleLoras)}
-                className="h-8 w-24"
-                title="Strength"
-              />
+              <div className="w-24 shrink-0">
+                <Input
+                  type="number"
+                  step={0.05}
+                  min={-5}
+                  max={5}
+                  value={s.strength}
+                  onChange={(e) =>
+                    setStyleLoras(
+                      styleLoras.map((x, j) =>
+                        j === i ? { ...x, strength: Number(e.target.value) || 0 } : x,
+                      ),
+                    )
+                  }
+                  onBlur={() => saveStyleLoras.mutate(styleLoras)}
+                  className="h-8"
+                  title="Strength"
+                />
+              </div>
               <button
                 onClick={() => commitStyleLoras(styleLoras.filter((_, j) => j !== i))}
                 className="text-fog transition-colors hover:text-status-failed"
