@@ -30,11 +30,12 @@ storybored/
       api/                    # routers: projects.py scenes.py shots.py characters.py
                               #   jobs.py breakdown.py export.py settings_api.py
                               #   workflows_api.py training.py health.py media.py
+                              #   lifecycle.py (.storybored export/import/download)
       engine/                 # comfy_client.py graph.py registry.py image.py video.py
       jobs/                   # runner.py (DB-backed queue, GPU lane serialization)
       llm/                    # client.py breakdown.py  (OpenAI-compatible chat)
       training/               # lora_factory.py (trainer adapter) fetch.py (URL import)
-      export/                 # animatic.py (imageio-ffmpeg)
+      export/                 # animatic.py (imageio-ffmpeg) + archive.py (.storybored)
       seed/                   # demo.py + demo script text (original content, written fresh)
     tests/                    # pytest; fake ComfyUI + fake LLM via local aiohttp/starlette test servers
   frontend/                   # Vite + React 18 + TypeScript + Tailwind v4

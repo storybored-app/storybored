@@ -126,6 +126,31 @@ ComfyUI can run on a different machine than StoryBored — set `COMFYUI_URL`
 accordingly. All jobs share a single GPU lane, so a long training run simply
 queues generations behind it (the UI shows you the queue).
 
+## Moving or backing up your data
+
+Everything StoryBored makes lives in one folder — `DATA_DIR` (default:
+`./data` inside the repo): the database, generated stills and clips, animatic
+exports and any engine packs you installed yourself.
+
+- **Back up / share one project** — use **Export** on the Projects page. You
+  get a single `.storybored` file with the whole board and its media; import
+  it on any StoryBored via **Import** (characters with matching `@handles`
+  are reused, or kept separate if you choose). Character LoRA files are *not*
+  inside the archive — install those in your engine as usual.
+- **Back up everything** — copy the `DATA_DIR` folder while StoryBored is
+  stopped. That folder *is* your studio.
+- **Move to a bigger disk** — stop StoryBored, then:
+
+  ```bash
+  python3 -m storybored relocate /path/to/new/location
+  ```
+
+  It refuses to run while the server is up, moves the folder, and prints the
+  `DATA_DIR=...` line to put in your `.env`. (Doing it by hand works too:
+  move the folder, set `DATA_DIR` to the new path.) `STORYBORED_HOME` is the
+  bigger hammer — it relocates where `.env` and a relative `DATA_DIR` are
+  looked up, for packaged installs.
+
 ## Going further
 
 - **Get the model files a pack needs** — [docs/MODELS.md](docs/MODELS.md)

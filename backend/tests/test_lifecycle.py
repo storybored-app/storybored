@@ -162,6 +162,60 @@ def test_delete_project_cancels_queued_jobs(app, client, settings):
     assert cancelled == [job.id]
 
 
+# -- relocate CLI --------------------------------------------------------------
+
+
+def test_relocate_moves_data_and_prints_env_line(settings, tmp_path, capsys):
+    from storybored.__main__ import relocate
+
+    settings.data_path.mkdir(parents=True, exist_ok=True)
+    settings.db_path.write_bytes(b"")  # stands in for the sqlite file
+    marker = settings.media_path / "1" / "2" / "take_3.png"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_bytes(b"still")
+
+    dest = tmp_path / "moved-data"
+    assert relocate(settings, str(dest)) == 0
+    assert not settings.data_path.exists()
+    assert (dest / "media" / "1" / "2" / "take_3.png").read_bytes() == b"still"
+    out = capsys.readouterr().out
+    assert f"DATA_DIR={dest}" in out
+
+
+def test_relocate_refuses_when_db_is_locked(settings, tmp_path, capsys):
+    import sqlite3
+
+    from storybored.__main__ import relocate
+
+    settings.data_path.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(settings.db_path)
+    conn.execute("CREATE TABLE t (x)")
+    conn.execute("BEGIN IMMEDIATE")  # hold the write lock like a live server
+    try:
+        assert relocate(settings, str(tmp_path / "elsewhere")) == 1
+        assert settings.data_path.exists()
+        assert "locked" in capsys.readouterr().out
+    finally:
+        conn.rollback()
+        conn.close()
+
+
+def test_relocate_refuses_bad_destinations(settings, tmp_path, capsys):
+    from storybored.__main__ import relocate
+
+    settings.data_path.mkdir(parents=True, exist_ok=True)
+    # non-empty destination
+    dest = tmp_path / "occupied"
+    dest.mkdir()
+    (dest / "something").write_text("here")
+    assert relocate(settings, str(dest)) == 1
+    # destination inside the data dir
+    assert relocate(settings, str(settings.data_path / "sub")) == 1
+    # same path
+    assert relocate(settings, str(settings.data_path)) == 1
+    assert settings.data_path.exists()
+
+
 def test_image_gen_fails_cleanly_when_scene_is_gone(app, client, settings):
     """No media/0 orphan bucket: a shot without its scene fails the job."""
     import sqlite3
