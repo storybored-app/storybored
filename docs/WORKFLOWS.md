@@ -110,6 +110,7 @@ API export keeps only ids, so keep the editor-format `.json` around as your
 | `frame_conditioning` | no | Video packs whose sampler accepts both a first- and a last-frame image: `{"node": "6", "first": "first_frame", "last": "last_frame"}`. Enables the shot-level "still anchors first/last frame" toggle — "last" moves whatever feeds the first input onto the last input. |
 | `required_models` | no | Map of `"<ClassType>.<input_name>"` → list of model filenames the graph needs. Validated against ComfyUI `/object_info` enums (cached 60 s); misses mark the pack unavailable with the missing names listed. Availability checks the **effective** set: a user's Settings model swap replaces the baked filename, and a baked LoRA the user toggled off is not required. |
 | `required_nodes` | no | Extra node **class names** to require beyond what the graph already references (rarely needed — every `class_type` in your graph is checked automatically). Missing classes mark the pack unavailable with a "missing custom nodes" list, so users learn they need a node pack, not a model file. |
+| `prompt_guide` | no | Teaches the writing assistant how *your model* wants to be prompted: `{"style": "<one-paragraph description>", "examples": ["<good prompt>", ...]}` (examples optional, max 3). Injected into every LLM prompt-assembly pass — Enhance, script/story-vibes breakdown, motion drafts — whenever your pack is the engine that will render the result. A malformed guide is logged and ignored, never fatal. See "Teach the assistant your model's prompt style" below. |
 
 ### Parameter types
 
@@ -171,6 +172,41 @@ splices Sam's LoRA into your graph at generation time — your pack just declare
 Prompt side: `@sam` in the description becomes Sam's `"{trigger} {class_word}"`
 (e.g. `"zxsam person"`) before the prompt is written into the graph — the
 trigger token is what the LoRA was trained to respond to.
+
+## Teach the assistant your model's prompt style (`prompt_guide`)
+
+Every image/video model family has a prompting dialect — some want flowing
+photographic prose, some want terse action lines, some have conventions like a
+trailing `Audio:` sentence. The optional `prompt_guide` manifest key lets your
+pack teach StoryBored's writing assistant that dialect, so *Enhance*, script
+and story-vibes breakdowns, and motion drafts come out written for **your**
+engine instead of a generic one:
+
+```json
+"prompt_guide": {
+  "style": "One paragraph describing how this model wants to be prompted — sentence structure, what to always state (wardrobe, lighting, lens), what to avoid (tag lists, weights).",
+  "examples": [
+    "A complete example prompt in exactly the style your model responds to best."
+  ]
+}
+```
+
+- **`style`** (required) — one paragraph, written as instructions to a prompt
+  writer. Say what to include, in what shape, and what to avoid.
+- **`examples`** (optional, max 3) — finished prompts in the target style.
+  One or two strong examples beat three mediocre ones; they are pasted into
+  the system prompt verbatim, so keep them short and self-contained.
+
+The guide is injected as a clearly delimited section of the assistant's system
+prompt whenever your pack is the engine that will actually render: the engine
+selected in the shot drawer, or the configured default image/video workflow.
+Packs without a guide simply get the generic prompting rules — nothing breaks.
+A malformed guide is logged and ignored at load (`validate-pack` warns about
+the exact problem), so it can never sink an otherwise working pack.
+
+The three shipped packs carry guides you can crib from: the Krea 2 packs
+describe photographic-prose stills prompting, and `minimax-h3-i2v` describes
+motion-prose with its `Audio:` line convention.
 
 ## Runtime LoRA layers: what users can change without touching your pack
 

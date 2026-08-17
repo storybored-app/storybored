@@ -18,6 +18,7 @@ from storybored.config import Settings
 from storybored.db import get_session
 from storybored.llm.client import LLMError, LLMNotConfiguredError, get_llm_config
 from storybored.llm.enhance import build_notes, enhance_description
+from storybored.llm.guides import resolve_prompt_guide
 from storybored.llm.motion import build_motion_notes, generate_motion_prompt
 from storybored.models import Scene
 
@@ -30,6 +31,9 @@ class EnhanceRequest(BaseModel):
     description: str | None = None
     shot_type: str | None = None
     camera: str | None = None
+    #: the image engine selected in the editor — its prompt_guide steers the
+    #: enhancement; omitted → the configured default image workflow's guide
+    workflow_id: str | None = None
 
 
 @router.post("/shots/{shot_id}/enhance")
@@ -60,8 +64,9 @@ def enhance_shot(
         scene_slugline=scene.slugline if scene else "",
         scene_description=scene.description if scene else "",
     )
+    guide = resolve_prompt_guide(session, settings, "image", body.workflow_id)
     try:
-        enhanced = enhance_description(config, notes, description)
+        enhanced = enhance_description(config, notes, description, guide)
     except LLMNotConfiguredError as exc:  # pragma: no cover - config resolved above
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except LLMError as exc:
@@ -78,6 +83,9 @@ class MotionRequest(BaseModel):
     dialogue: str | None = None
     motion_prompt: str | None = None
     frame_position: Literal["first", "last"] | None = None
+    #: the video engine selected in the editor — its prompt_guide steers the
+    #: motion draft; omitted → the configured default video workflow's guide
+    workflow_id: str | None = None
 
 
 @router.post("/shots/{shot_id}/generate-motion")
@@ -117,8 +125,9 @@ def generate_motion(
         scene_description=scene.description if scene else "",
         frame_position=body.frame_position or shot.frame_position or "first",
     )
+    guide = resolve_prompt_guide(session, settings, "video", body.workflow_id)
     try:
-        motion = generate_motion_prompt(config, notes, rough_motion)
+        motion = generate_motion_prompt(config, notes, rough_motion, guide)
     except LLMNotConfiguredError as exc:  # pragma: no cover - config resolved above
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except LLMError as exc:

@@ -10,6 +10,7 @@ import re
 
 from storybored.engine.graph import parse_mentions
 from storybored.llm.client import LLMConfig, LLMError, chat
+from storybored.llm.guides import guide_block
 
 TEMPERATURE = 0.55
 
@@ -78,10 +79,19 @@ def build_notes(
     return "\n".join(lines)
 
 
-def enhance_description(config: LLMConfig, notes: str, original_description: str) -> str:
+def system_prompt(guide: dict | None = None) -> str:
+    """The PromptSmith system prompt, plus the active engine's prompt guide
+    (see llm/guides.py) when the render engine declares one."""
+    block = guide_block(guide)
+    return SYSTEM_PROMPT + ("\n\n" + block if block else "")
+
+
+def enhance_description(
+    config: LLMConfig, notes: str, original_description: str, guide: dict | None = None
+) -> str:
     """One chat call → cleaned single-paragraph prompt with @handles intact."""
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt(guide)},
         {"role": "user", "content": notes},
     ]
     content = _clean(chat(config, messages, temperature=TEMPERATURE))

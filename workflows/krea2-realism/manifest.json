@@ -33,5 +33,12 @@
       "RealisticSnapshotKrea2.safetensors",
       "realism_engine_krea2_v3.1.safetensors"
     ]
+  },
+  "prompt_guide": {
+    "style": "Krea 2 with the realism stack wants the texture of a real film still, written as flowing prose — never tag soup. One present-tense paragraph: name the subject and action, state every character's wardrobe, then give the light source and its quality, the lens and framing in natural sentences, and one or two tactile details the realism LoRAs can bite into (skin texture, fabric weave, condensation, film grain, atmosphere). Skip style keywords, prompt weights and quality boilerplate — the stack already supplies the photographic look.",
+    "examples": [
+      "An older woman in a faded floral apron kneads dough at a farmhouse kitchen table, flour dusting her forearms. Morning sun through a side window rakes across the scene, catching drifting flour and the worn grain of the wood. Medium close-up on an 85mm lens, shallow depth of field, the creases of her hands and the rough weave of the apron sharply rendered like a documentary film still.",
+      "A commuter in a rain-darkened gray overcoat waits under a flickering sodium lamp on an empty train platform at night. The wet asphalt mirrors the amber light; drizzle streaks through the lamp's cone. Wide shot on a 35mm lens with the platform edge leading into darkness, faint film grain and mist softening the far lights."
+    ]
   }
 }

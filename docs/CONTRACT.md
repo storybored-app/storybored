@@ -186,11 +186,13 @@ Characters:
   also returns `shootout_job`.
 
 LLM / PromptSmith (results land in visible editor fields; nothing persisted here):
-- `POST /api/shots/{id}/enhance {description?, shot_type?, camera?}` →
+- `POST /api/shots/{id}/enhance {description?, shot_type?, camera?, workflow_id?}` →
   {description} — rough notes → one polished image prompt (@handles preserved,
-  one nudge retry, then 502)
+  one nudge retry, then 502). `workflow_id` = the editor-selected image engine;
+  its `prompt_guide` (else the default image workflow's) steers the style.
 - `POST /api/shots/{id}/generate-motion {description?, shot_type?, camera?,
-  dialogue?, motion_prompt?, frame_position?}` → {motion_prompt} — everything the
+  dialogue?, motion_prompt?, frame_position?, workflow_id?}` → {motion_prompt} —
+  `workflow_id` = the selected video engine (guide as above); everything the
   shot knows → one MiniMax i2v motion prompt ending in an "Audio:" line;
   frame-position-aware (still opens the clip vs. clip arrives at the still);
   @handles from the author's own rough motion notes survive or 502
@@ -243,9 +245,15 @@ Infra:
   merely that something answered: comfy requires /system_stats to return 200 with
   JSON containing a "system" key; llm requires {base}/models to return 200 JSON.
   Status vocabulary: `ok` | `unreachable` (connect failed) | `unrecognized`
-  (answered, but not the expected service) | `error` (5xx) | `not_configured`;
-  trainer: `ok` | `missing` | `not_configured` (path is ~-expanded); ffmpeg: the
-  resolved binary path | `missing`.
+  (answered, but not the expected service) | `unauthorized` (401/403 — an API
+  key is required or the saved one was rejected) | `error` (5xx) |
+  `not_configured`; trainer: `ok` | `missing` | `not_configured` (path is
+  ~-expanded); ffmpeg: the resolved binary path | `missing`.
+  The LLM probe AUTHENTICATES: when an API key is configured it is sent as
+  `Authorization: Bearer …` so hosted providers report ok. Keys are never
+  accepted as probe query params; candidate-URL probes use the SAVED key, and
+  only when the candidate targets the configured base URL's host (same spirit
+  as the key-exfil guard in llm/client.py).
   Runtime-editable (DB wins over env) keys: comfyui_url (PUT flushes the
   /object_info cache), llm_base_url, llm_api_key, llm_model, lora_factory_dir,
   comfy_loras_dir (where imported character LoRA uploads are copied; ~-expanded),
@@ -318,6 +326,15 @@ Infra:
 - **Frame conditioning** (video packs): manifest `frame_conditioning {node,
   first, last}`; shot.frame_position="last" moves the sampler's first-frame
   image input onto the last-frame input so the clip ends on the still.
+- **Prompt guides** (llm/guides.py): optional manifest `prompt_guide
+  {style: "<one-paragraph prompting description>", examples: [≤3 strings]}`
+  teaches the writing assistant the pack's prompting dialect. Shape is
+  validated leniently at pack load (malformed → warning + ignored, never
+  fatal). Every LLM prompt-assembly path injects the guide of the engine that
+  will actually render — the editor-selected workflow_id or the configured
+  default image/video workflow — as a clearly delimited system-prompt section:
+  Enhance and breakdown/story-vibes use the image engine's guide, motion
+  drafts use the video engine's.
 - Users add engines by dropping a folder into `workflows/` (also scanned:
   `DATA_DIR/workflows/`). Registry validates required_models against /object_info
   and flags unavailable packs in the UI instead of hiding them.
@@ -405,6 +422,9 @@ schema (include the schema in the prompt); known characters list (handles) passe
 it can tag them. Parse defensively: strip code fences, json.loads, on failure one retry
 with "return only valid JSON". Temperature 0.3. If LLM_BASE_URL unset → 503 with clear
 detail; UI hides the feature behind a "configure in Settings" hint.
+All prompt-assembly paths (breakdown/story-vibes, Enhance, generate-motion) append the
+active render engine's `prompt_guide` to the system prompt when the pack declares one
+(see the Workflow packs section and llm/guides.py).
 
 ## Trainer adapter (training/lora_factory.py)
 

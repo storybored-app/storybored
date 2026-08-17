@@ -12,6 +12,7 @@ The prompt is frame-position aware: the shot's still either opens the clip
 from storybored.engine.graph import parse_mentions
 from storybored.llm.client import LLMConfig, LLMError, chat
 from storybored.llm.enhance import HANDLE_NUDGE, _clean
+from storybored.llm.guides import guide_block
 
 TEMPERATURE = 0.55
 
@@ -82,7 +83,16 @@ def build_motion_notes(
     return "\n".join(lines)
 
 
-def generate_motion_prompt(config: LLMConfig, notes: str, rough_motion: str) -> str:
+def system_prompt(guide: dict | None = None) -> str:
+    """The motion system prompt, plus the active video engine's prompt guide
+    (see llm/guides.py) when the render engine declares one."""
+    block = guide_block(guide)
+    return SYSTEM_PROMPT + ("\n\n" + block if block else "")
+
+
+def generate_motion_prompt(
+    config: LLMConfig, notes: str, rough_motion: str, guide: dict | None = None
+) -> str:
     """One chat call → cleaned single-paragraph motion prompt.
 
     @handles from the author's own rough motion notes must survive (one nudge
@@ -90,7 +100,7 @@ def generate_motion_prompt(config: LLMConfig, notes: str, rough_motion: str) -> 
     motion prompt legitimately may not name every character.
     """
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt(guide)},
         {"role": "user", "content": notes},
     ]
     content = _clean(chat(config, messages, temperature=TEMPERATURE))
