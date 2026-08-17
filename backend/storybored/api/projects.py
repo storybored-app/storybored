@@ -1,16 +1,54 @@
-"""Projects CRUD + the nested board payload."""
+"""Projects CRUD + the nested board payload + delete cleanup helpers."""
 
+import shutil
+from collections.abc import Iterable
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from sqlmodel import Session, select
 
+from storybored.config import Settings
 from storybored.db import get_session
-from storybored.models import Project, Scene, Shot, ShotCharacter, Take
+from storybored.models import Character, Job, Project, Scene, Shot, ShotCharacter, Take
 from storybored.schemas import ProjectCreate, ProjectUpdate
 
 router = APIRouter(prefix="/api", tags=["projects"])
+
+
+def unlink_data_files(settings: Settings, rel_paths: Iterable[str | None]) -> None:
+    """Best-effort unlink of DATA_DIR-relative files.
+
+    Every path is resolved and checked with is_relative_to before touching the
+    filesystem, so a hostile/corrupt DB row can never delete outside DATA_DIR."""
+    for rel in rel_paths:
+        if not rel:
+            continue
+        try:
+            path = (settings.data_path / rel).resolve()
+            if path.is_relative_to(settings.data_path) and path.is_file():
+                path.unlink()
+        except OSError:
+            pass
+
+
+def take_file_paths(takes: Iterable[Take]) -> list[str | None]:
+    """The on-disk files (still/clip + thumb) belonging to the given takes."""
+    paths: list[str | None] = []
+    for take in takes:
+        paths.extend((take.file_path, take.thumb_path))
+    return paths
+
+
+def remove_project_trees(settings: Settings, project_id: int) -> None:
+    """Remove media/{id} and exports/{id}, guarded to stay inside DATA_DIR."""
+    for base in (settings.media_path, settings.exports_path):
+        try:
+            tree = (base / str(project_id)).resolve()
+            if tree.is_relative_to(settings.data_path) and tree.is_dir():
+                shutil.rmtree(tree, ignore_errors=True)
+        except OSError:
+            pass
 
 
 def get_project_or_404(session: Session, project_id: int) -> Project:
@@ -123,7 +161,22 @@ def update_project(
 
 @router.delete("/projects/{project_id}", status_code=204)
 def delete_project(project_id: int, request: Request, session: Session = Depends(get_session)):
+    """Delete the project, its rows, its jobs, and its media/exports on disk."""
     project = get_project_or_404(session, project_id)
+    settings: Settings = request.app.state.settings
+    runner = request.app.state.runner
+
+    # 1) cancel any in-flight work for this project, then forget its job rows
+    jobs = session.exec(select(Job).where(Job.project_id == project_id)).all()
+    for job in jobs:
+        if job.status in ("queued", "running") and job.id is not None:
+            runner.cancel(job.id)
+    for job in jobs:
+        session.delete(job)
+    session.flush()
+
+    # 2) delete rows children-first (FKs are enforced; no relationships are
+    #    mapped, so flush between stages to pin the ordering)
     scene_ids = session.exec(select(Scene.id).where(Scene.project_id == project_id)).all()
     if scene_ids:
         shot_ids = session.exec(select(Shot.id).where(Shot.scene_id.in_(scene_ids))).all()  # type: ignore[attr-defined]
@@ -134,10 +187,30 @@ def delete_project(project_id: int, request: Request, session: Session = Depends
                 select(ShotCharacter).where(ShotCharacter.shot_id.in_(shot_ids))  # type: ignore[attr-defined]
             ):
                 session.delete(link)
+            session.flush()
             for shot in session.exec(select(Shot).where(Shot.id.in_(shot_ids))):  # type: ignore[attr-defined]
                 session.delete(shot)
+            session.flush()
         for scene in session.exec(select(Scene).where(Scene.project_id == project_id)):
             session.delete(scene)
+        session.flush()
     session.delete(project)
+
+    # 3) characters whose auto-thumbnail was a take inside this project would
+    #    dangle — clear them (a deliberate upload elsewhere is unaffected)
+    changed_chars = []
+    for char in session.exec(
+        select(Character).where(
+            Character.thumbnail_path.like(f"media/{project_id}/%")  # type: ignore[attr-defined]
+        )
+    ):
+        char.thumbnail_path = None
+        session.add(char)
+        changed_chars.append(char)
     session.commit()
+
+    # 4) with the rows gone, reclaim the disk trees
+    remove_project_trees(settings, project_id)
+    for char in changed_chars:
+        request.app.state.bus.publish("character", jsonable_encoder(char))
     return None

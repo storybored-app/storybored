@@ -103,6 +103,13 @@ first take done→generated; POST approve (requires picked take)→approved.
 Projects/board:
 - `GET/POST /api/projects`, `GET/PATCH/DELETE /api/projects/{id}`
   (GET single returns nested scenes+shots+takes summary — the board payload)
+- DELETE semantics (no orphans on disk): deleting a **take** unlinks its
+  files; deleting a **shot** or **scene** unlinks all its takes' files;
+  deleting a **project** additionally cancels the project's queued/running
+  jobs (via job.project_id), deletes its job rows, removes the whole
+  `media/{id}` and `exports/{id}` trees, and clears any character thumbnail
+  that pointed into them. Characters are global and never deleted with a
+  project. All unlinks resolve under DATA_DIR (is_relative_to guard).
 - `POST /api/projects/{id}/scenes` · `PATCH/DELETE /api/scenes/{id}`
 - `POST /api/projects/{id}/scenes/reorder {scene_ids:[…]}`
 - `POST /api/scenes/{id}/shots` · `GET/PATCH/DELETE /api/shots/{id}`

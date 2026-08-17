@@ -131,7 +131,11 @@ async def image_gen(job, ctx):
         if shot is None:
             raise RuntimeError(f"shot {shot_id} not found")
         scene = session.get(Scene, shot.scene_id)
-        project_id = scene.project_id if scene is not None else 0
+        if scene is None:
+            # never fall back to a fake project bucket (media/0) that no
+            # cleanup path owns — a shot without its scene is a dead shot
+            raise RuntimeError(f"shot {shot_id} has no parent scene — was it deleted?")
+        project_id = scene.project_id
         refresh_shot_characters(session, shot)
         session.commit()
         handles = parse_mentions(shot.description or "")

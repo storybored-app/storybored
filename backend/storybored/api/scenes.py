@@ -1,10 +1,15 @@
 """Scene endpoints: create under a project, update, delete, reorder."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from sqlmodel import Session, select
 
-from storybored.api.projects import get_project_or_404, touch_project
+from storybored.api.projects import (
+    get_project_or_404,
+    take_file_paths,
+    touch_project,
+    unlink_data_files,
+)
 from storybored.db import get_session
 from storybored.models import Scene, Shot, ShotCharacter, Take
 from storybored.schemas import SceneCreate, SceneReorder, SceneUpdate
@@ -75,18 +80,23 @@ def update_scene(scene_id: int, body: SceneUpdate, session: Session = Depends(ge
 
 
 @router.delete("/scenes/{scene_id}", status_code=204)
-def delete_scene(scene_id: int, session: Session = Depends(get_session)):
+def delete_scene(scene_id: int, request: Request, session: Session = Depends(get_session)):
     scene = get_scene_or_404(session, scene_id)
     shot_ids = session.exec(select(Shot.id).where(Shot.scene_id == scene_id)).all()
+    doomed_files: list[str | None] = []
     if shot_ids:
-        for take in session.exec(select(Take).where(Take.shot_id.in_(shot_ids))):  # type: ignore[attr-defined]
+        takes = session.exec(select(Take).where(Take.shot_id.in_(shot_ids))).all()  # type: ignore[attr-defined]
+        doomed_files = take_file_paths(takes)
+        for take in takes:
             session.delete(take)
         for link in session.exec(
             select(ShotCharacter).where(ShotCharacter.shot_id.in_(shot_ids))  # type: ignore[attr-defined]
         ):
             session.delete(link)
+        session.flush()
         for shot in session.exec(select(Shot).where(Shot.id.in_(shot_ids))):  # type: ignore[attr-defined]
             session.delete(shot)
+        session.flush()
     project_id = scene.project_id
     session.delete(scene)
     # compact remaining scene indexes
@@ -100,4 +110,6 @@ def delete_scene(scene_id: int, session: Session = Depends(get_session)):
         session.add(s)
     touch_project(session, project_id)
     session.commit()
+    # rows are gone — reclaim the takes' files (guarded, best-effort)
+    unlink_data_files(request.app.state.settings, doomed_files)
     return None

@@ -2,13 +2,12 @@
 pick, approve/unapprove. @mentions in the description refresh shotcharacter."""
 
 import re
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from sqlmodel import Session, select
 
-from storybored.api.projects import touch_project
+from storybored.api.projects import take_file_paths, touch_project, unlink_data_files
 from storybored.api.scenes import get_scene_or_404
 from storybored.db import get_session
 from storybored.models import Character, Shot, ShotCharacter, Take
@@ -137,12 +136,15 @@ def update_shot(
 
 
 @router.delete("/shots/{shot_id}", status_code=204)
-def delete_shot(shot_id: int, session: Session = Depends(get_session)):
+def delete_shot(shot_id: int, request: Request, session: Session = Depends(get_session)):
     shot = get_shot_or_404(session, shot_id)
-    for take in session.exec(select(Take).where(Take.shot_id == shot_id)):
+    takes = session.exec(select(Take).where(Take.shot_id == shot_id)).all()
+    doomed_files = take_file_paths(takes)
+    for take in takes:
         session.delete(take)
     for link in session.exec(select(ShotCharacter).where(ShotCharacter.shot_id == shot_id)):
         session.delete(link)
+    session.flush()
     scene_id = shot.scene_id
     session.delete(shot)
     remaining = session.exec(
@@ -156,6 +158,8 @@ def delete_shot(shot_id: int, session: Session = Depends(get_session)):
     scene = get_scene_or_404(session, scene_id)
     touch_project(session, scene.project_id)
     session.commit()
+    # rows are gone — reclaim the takes' files (guarded, best-effort)
+    unlink_data_files(request.app.state.settings, doomed_files)
     return None
 
 
@@ -198,16 +202,7 @@ def delete_take(take_id: int, request: Request, session: Session = Depends(get_s
     if take is None:
         raise HTTPException(status_code=404, detail="take not found")
     shot = session.get(Shot, take.shot_id)
-    settings = request.app.state.settings
-    for rel in (take.file_path, take.thumb_path):
-        if not rel:
-            continue
-        try:
-            path = (settings.data_path / rel).resolve()
-            if path.is_relative_to(settings.data_path) and path.is_file():
-                Path(path).unlink()
-        except OSError:
-            pass
+    unlink_data_files(request.app.state.settings, (take.file_path, take.thumb_path))
     session.delete(take)
     if shot is not None:
         changed = False

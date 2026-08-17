@@ -166,7 +166,11 @@ export function ProjectsPage() {
                 <button
                   onClick={(e) => {
                     e.preventDefault();
-                    if (window.confirm(`Delete "${p.title}"? This can't be undone.`))
+                    if (
+                      window.confirm(
+                        `Delete "${p.title}"? All its generated images, videos and exports will be deleted from disk too. This can't be undone.`,
+                      )
+                    )
                       remove.mutate(p.id);
                   }}
                   className="absolute right-2 top-2 rounded bg-ink-900/70 p-1 text-transparent backdrop-blur-sm transition-colors hover:!text-status-failed group-hover:text-fog"
