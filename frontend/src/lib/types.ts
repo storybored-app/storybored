@@ -11,7 +11,9 @@ export type JobType =
   | "animatic"
   | "dataset_prep"
   | "lora_train"
-  | "lora_shootout";
+  | "lora_shootout"
+  | "character_thumb"
+  | "project_export";
 export type CharacterStatus = "ready" | "dataset" | "training" | "trained";
 
 export interface Project {
@@ -89,6 +91,8 @@ export interface Job {
   type: JobType;
   status: JobStatus;
   lane?: string;
+  /** set when the job belongs to a project (gen/animatic/export jobs) */
+  project_id?: number | null;
   payload_json?: string | null;
   result_json?: string | null;
   error?: string | null;
