@@ -238,6 +238,35 @@ Infra:
   verified source come back in `skipped`. Filenames already queued/running are not
   double-queued. 409 when `comfy_models_dir` is unset, 404 unknown pack, 503 when
   the engine is unreachable (can't compute what's missing).
+- Each `GET /api/workflows` row also carries `removable: bool` — true for
+  user-installed packs (`DATA_DIR/workflows`), the only ones DELETE accepts.
+- `POST /api/workflows/analyze {graph}` → a proposed manifest draft for an
+  uploaded **API-format** graph (the import wizard's first step; offline, no
+  ComfyUI). Returns `{kind, node_count, roles, model_slots,
+  frame_conditioning, required_models, warnings}` where `roles` maps
+  prompt/seed/size/output/image/length/seam to `{candidates: […],
+  suggested: {node, input?, confidence} | null}`. Detections are suggestions:
+  prompt candidates are text-encode `text` inputs and free-string `prompt`
+  inputs with positive/negative resolved by tracing sampler conditioning
+  links; seed = literal `seed`/`noise_seed` inputs; size = literal
+  width+height nodes; output = Save-family sinks; the seam = last LoRA in the
+  chain else the model loader (`character_injection` for image kind,
+  `lora_injection` + `LoraLoaderModelOnly` for video); `required_models` uses
+  the validate-pack derivation. Ambiguities come back as candidates +
+  `warnings`, never errors. Editor-format files ("nodes"/"links" keys) → 400
+  citing the dev-mode "Save (API Format)" export.
+- `POST /api/workflows/import {id, name, kind, description?, graph,
+  parameters, output_node, character_injection?, lora_injection?,
+  model_slots?, frame_conditioning?}` → 201 with the new pack's availability
+  (`{id, name, kind, available, missing_models, missing_models_info,
+  missing_nodes, error, removable}`). Writes `DATA_DIR/workflows/{id}/`
+  (manifest + graph) after running the exact validate-pack checks with
+  `required_models` re-derived from the graph; staged + moved so a failed
+  import leaves nothing behind. 400 on a non-slug id, path escape
+  (is_relative_to guard) or validation failure; 409 when the id collides with
+  any existing pack (repo or DATA_DIR).
+- `DELETE /api/workflows/{id}` → 204 — removes a user-installed pack's folder.
+  403 for repo-shipped packs, 404 unknown.
 - `GET/PUT /api/settings` · `GET /api/health` → {comfy, llm, trainer, ffmpeg} statuses.
   Probes are STRICT — "ok" means the response looked like the right service, not
   merely that something answered: comfy requires /system_stats to return 200 with

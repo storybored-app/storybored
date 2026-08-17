@@ -51,6 +51,9 @@ animatic MP4.
 - **Engine packs** — generation engines are drop-in folders (a ComfyUI graph +
   a small manifest). Add your own workflow without touching StoryBored's code.
   See [docs/WORKFLOWS.md](docs/WORKFLOWS.md).
+- **Import workflows from the UI** — drop a ComfyUI API-format export into the
+  Settings wizard: prompt, seed, size, output and LoRA seam are auto-detected
+  (confirm or correct each), and it becomes an engine — no manifest by hand.
 - **LoRAs and models without JSON surgery** — every engine's built-in LoRA
   stack is visible and editable in Settings (toggle, re-strength, append,
   one-click reset to pack defaults) — video engines take extra LoRAs too — you

@@ -22,6 +22,38 @@ pack or crashes. Missing files are enriched from the model catalog (see
 entry per file if you want your pack's missing-model list to carry a download
 link, size and license too.
 
+## Import from the UI (the easy path)
+
+You don't have to write a manifest at all: **Settings → Engines → Import
+workflow** turns an API-format export into a pack from inside StoryBored.
+
+1. Export your workflow in API format (see the next section) and drop the
+   `.json` into the wizard.
+2. StoryBored analyzes the graph and pre-fills the mappings this document
+   teaches you to find by hand: the prompt (it traces the sampler's
+   positive/negative conditioning links to tell the two text encodes apart),
+   the seed, the width/height node, the save node, swappable model loaders,
+   and the LoRA seam (`character_injection` for image graphs,
+   `lora_injection` for video). Each guess is a dropdown of the graph's
+   eligible nodes — confirm or correct; only the prompt and the output are
+   required. Ambiguity (two text encodes, no save node) is surfaced as a
+   choice, never an error.
+3. Name it, give it an id, done. The pack lands in `DATA_DIR/workflows/<id>/`
+   with `required_models` derived from the graph's loader nodes (exactly what
+   `validate-pack --write` produces), passes the same offline validation, and
+   shows up immediately in the engine selector — availability-checked like any
+   other pack, with missing models/nodes listed in Settings.
+
+Imported packs carry an **imported** badge and a **Remove this engine** button
+in their Settings row; packs that ship with StoryBored can't be removed. The
+wizard only accepts API-format exports — the editor-format "Save" file is
+rejected with a pointer to the dev-mode export.
+
+The rest of this document is the manual route: write `manifest.json` yourself
+for full control (defaults, extra parameters like steps, `disable_nodes`,
+`required_nodes`, frame conditioning tweaks) or to understand what the wizard
+generated.
+
 ## graph.json: the API-format export
 
 ComfyUI has two graph formats. Packs use the **API format** — the JSON that
