@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Clapperboard, Settings, Users } from "lucide-react";
+import { BrandMark } from "./BrandMark";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { JobTray } from "./JobTray";
 import { useHealth } from "./HealthBanner";
@@ -47,9 +48,7 @@ export function Layout() {
       <header className="sticky top-0 z-50 border-b border-line bg-ink-950/90 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-7xl items-center gap-6 px-5">
           <NavLink to="/" className="flex items-center gap-2.5">
-            <span className="flex h-7 w-7 items-center justify-center rounded-md border border-amber-450/40 bg-amber-450/10">
-              <Clapperboard size={15} className="text-amber-450" />
-            </span>
+            <BrandMark className="h-7 w-7" />
             <span className="text-[15px] font-semibold tracking-tight text-paper">
               Story<span className="text-amber-450">Bored</span>
             </span>

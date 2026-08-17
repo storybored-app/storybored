@@ -1,3 +1,14 @@
+<p align="center">
+  <img src="assets/brand/icon.svg" alt="StoryBored icon" width="96" />
+</p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/lockup-dark.svg" />
+    <img src="assets/brand/lockup-light.svg" alt="StoryBored" height="44" />
+  </picture>
+</p>
+<p align="center"><em>From script to storyboard — on your own GPU.</em></p>
+
 # StoryBored
 
 > **Storyboard your film with AI — no node graphs, no jargon.**
