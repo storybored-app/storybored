@@ -110,14 +110,16 @@ async def import_lora(request: Request, session: Session = Depends(get_session))
             raise HTTPException(
                 status_code=400, detail="only .safetensors files can be imported"
             )
-        if not settings.comfy_loras_dir:
+        loras_dir = effective_setting(session, settings, "comfy_loras_dir")
+        if not loras_dir:
             raise HTTPException(
                 status_code=400,
-                detail="COMFY_LORAS_DIR is not configured — set it in .env so imported "
-                "LoRA files land where the engine can load them, or import by name "
-                "with JSON {\"lora_name\": ...} instead",
+                detail="No LoRA folder is configured — set it in Settings (or "
+                "COMFY_LORAS_DIR in .env) so imported LoRA files land where the "
+                "engine can load them, or import by name with JSON "
+                "{\"lora_name\": ...} instead",
             )
-        dest_dir = Path(settings.comfy_loras_dir)
+        dest_dir = Path(loras_dir).expanduser()
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / filename
         with dest.open("wb") as fh:

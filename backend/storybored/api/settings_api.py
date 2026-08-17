@@ -22,7 +22,11 @@ OVERRIDABLE = {
     "llm_api_key",
     "llm_model",
     "comfyui_url",
+    "comfy_loras_dir",
     "lora_factory_dir",
+    # not env-backed: "1" once the first-run setup wizard has finished (or was
+    # explicitly skipped) — the UI stops auto-offering it after that.
+    "setup_complete",
     "default_image_workflow",
     "default_video_workflow",
     "style_loras",

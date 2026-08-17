@@ -164,6 +164,48 @@ def test_mode_switch_failure_fails_job_and_invalidates_family(tmp_path):
         assert runner._last_family is None
 
 
+def test_mode_switch_polls_effective_comfy_url(tmp_path, monkeypatch):
+    # The post-switch readiness poll must honor the DB-overridden ComfyUI URL
+    # (what the Settings UI writes), not just the env value — otherwise a URL
+    # configured only in Settings shows health "ok" but every job times out.
+    from fake_comfy import FakeComfy
+
+    import storybored.jobs.runner as runner_mod
+
+    monkeypatch.setattr(runner_mod, "COMFY_WAIT_S", 2.0)  # fast failure on regression
+    fake = FakeComfy()
+    fake.start()
+    try:
+        settings = Settings(
+            _env_file=None,
+            data_dir=str(tmp_path / "data"),
+            comfyui_url="http://127.0.0.1:9",  # env points at a dead port
+            comfy_mode_image_cmd="echo switching",  # forces the readiness poll
+            comfy_mode_video_cmd="",
+            comfy_flush_cmd="",
+            llm_base_url="",
+            lora_factory_dir="",
+        )
+        app = create_app(settings)
+        with TestClient(app) as client:
+            client.put(
+                "/api/settings", json={"values": {"comfyui_url": fake.url}}
+            ).raise_for_status()
+            runner = app.state.runner
+            runner._last_family = "video"  # force an image-mode switch
+
+            job = runner.enqueue("image_gen", {"shot_id": 999999})
+            row = wait_for(client, job.id, {"failed", "done", "cancelled"})
+            # The job fails on the missing shot — meaning the readiness poll hit
+            # the overridden (live) URL and let the job through. With the old
+            # env-only URL it would fail with "not reachable" instead.
+            assert row["status"] == "failed"
+            assert "not found" in row["error"]
+            assert "not reachable" not in row["error"]
+    finally:
+        fake.stop()
+
+
 def test_startup_recovery_settles_takes_and_shots(settings):
     # A crash mid-generation leaves a 'pending' take and a 'queued' shot. Startup
     # recovery must fail the interrupted job AND settle its side effects.

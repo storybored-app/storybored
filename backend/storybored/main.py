@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from storybored.api import (
     breakdown,
@@ -102,15 +102,52 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
+#: served instead of the app when frontend/dist doesn't exist yet — a silent
+#: 404 on / makes a fresh install look broken when it's just one step short.
+NOT_BUILT_HTML = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StoryBored — one step left</title>
+  <style>
+    body { margin: 0; display: grid; place-items: center; min-height: 100vh;
+           background: #121110; color: #e8e4dd;
+           font: 15px/1.6 system-ui, sans-serif; }
+    main { max-width: 34rem; padding: 2rem; }
+    h1 { font-size: 1.15rem; }  h1 span { color: #e2a33d; }
+    pre { background: #1c1a18; border: 1px solid #2c2926; border-radius: 8px;
+          padding: 0.9rem 1.1rem; overflow-x: auto; }
+    p { color: #a89f93; }  code { color: #e8e4dd; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Story<span>Bored</span> is running — the interface just isn't built yet</h1>
+  <p>The server is up (the API is live under <code>/api</code>), but the web
+  interface hasn't been compiled. From the project folder, run:</p>
+  <pre><code>npm --prefix frontend install
+npm --prefix frontend run build</code></pre>
+  <p>then reload this page — no server restart needed.</p>
+</main>
+</body>
+</html>
+"""
+
+
 def _mount_frontend(app: FastAPI) -> None:
-    """Serve frontend/dist at / with index.html fallback (SPA), if built."""
+    """Serve frontend/dist at / with index.html fallback (SPA).
+
+    When the frontend isn't built, serve a small self-contained page that says
+    exactly how to finish the install instead of 404ing silently. The check is
+    per-request, so building the frontend takes effect on reload — no restart."""
     dist = FRONTEND_DIST
     index = dist / "index.html"
-    if not index.is_file():
-        return
 
     @app.get("/{full_path:path}", include_in_schema=False)
     def spa(full_path: str):
+        if not index.is_file():
+            return HTMLResponse(NOT_BUILT_HTML)
         if full_path:
             candidate = (dist / full_path).resolve()
             if candidate.is_file() and candidate.is_relative_to(dist):

@@ -95,9 +95,30 @@ StoryBored's dependencies out of your system Python; activate it (`.
 again. Prefer [uv](https://docs.astral.sh/uv/)? `uv venv && uv pip install -e
 backend` does the same thing.
 
-Open <http://localhost:8600>. First run? The Projects screen starts empty —
-click **Load demo project** to get "The Last Lighthouse", a small two-scene
-board you can play with immediately.
+Open <http://localhost:8600>.
+
+### First run
+
+Until an engine is connected, StoryBored opens a short **setup wizard** (also
+reachable any time from Settings → *Setup wizard*):
+
+1. **Pick your situation** — you already run ComfyUI, you still need to
+   install it (the wizard points you at the right docs), or you have **no GPU**
+   and want boards-only planning for now.
+2. **Connect the engine** — enter the ComfyUI address and hit *Test*. On
+   success the wizard shows your GPU, its VRAM, what that hardware can do
+   (stills / video / training), and which engine packs are ready vs. missing
+   model files (see [docs/MODELS.md](docs/MODELS.md) for the downloads).
+3. **Writing assistant (optional)** — an OpenAI-compatible LLM for script
+   breakdown, prompt polishing and motion drafts; the wizard lists the models
+   your service offers. Skip it and you write those yourself.
+4. **Character trainer (optional)** — point at a trainer checkout to enable
+   training characters from photos ([docs/TRAINING.md](docs/TRAINING.md)).
+
+Every choice is skippable and editable later in Settings — nothing here is a
+wall. When you land on the (empty) Projects screen, click **Load demo
+project** to get "The Last Lighthouse", a small two-scene board you can play
+with immediately.
 
 > **Running on your network.** StoryBored listens on `127.0.0.1` (localhost)
 > only by default, so it is reachable just from the machine it runs on. It has
@@ -112,8 +133,10 @@ StoryBored itself is lightweight — the GPU requirements come from the engine
 packs you run in ComfyUI. StoryBored ships engine *definitions*, not the
 multi-gigabyte model files they load; before your first shot, make sure your
 ComfyUI has the files each pack needs. **[docs/MODELS.md](docs/MODELS.md)**
-explains what to download and where — and Settings lists any missing models per
-pack so you know exactly what's absent.
+explains what to download and where — and both the setup wizard and Settings
+list any missing models per pack so you know exactly what's absent. The wizard
+also reads your GPU's VRAM straight from the engine and tells you which tier
+below you're in.
 
 | What you're doing                  | GPU                                        | Notes                                    |
 | ---------------------------------- | ------------------------------------------ | ---------------------------------------- |

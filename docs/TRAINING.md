@@ -7,9 +7,9 @@ get one two ways:
 
 - **Import an existing LoRA** — Characters → New character → *Import existing
   LoRA*. Pick one your ComfyUI already knows about, or upload a
-  `.safetensors` file (requires `COMFY_LORAS_DIR` to be set so StoryBored can
-  copy it where ComfyUI looks). Set the trigger yourself — it's whatever the
-  LoRA was trained with.
+  `.safetensors` file (requires a LoRA folder — Settings → "LoRA folder", or
+  `COMFY_LORAS_DIR` in `.env` — so StoryBored can copy it where ComfyUI
+  looks). Set the trigger yourself — it's whatever the LoRA was trained with.
 - **Train from photos** — the wizard described below. Requires a trainer
   (see [Prerequisites](#prerequisites)).
 
@@ -40,13 +40,15 @@ To enable training:
 
 1. Set up a lora-factory-style trainer on the machine with the GPU and follow
    its own README.
-2. Point StoryBored at it in `.env`:
+2. Point StoryBored at it — either in Settings (the setup wizard's trainer
+   step, or Settings → "Character trainer"; takes effect immediately) or in
+   `.env` (needs a restart):
 
    ```
    LORA_FACTORY_DIR=/path/to/lora-factory
    ```
 
-3. Restart StoryBored. Settings → trainer should show a green status.
+3. Settings → trainer should show a green status.
 
 If `LORA_FACTORY_DIR` is unset or wrong, the "Train from photos" tab shows a
 friendly "configure in Settings" hint instead of the wizard — nothing breaks.

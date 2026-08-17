@@ -32,12 +32,20 @@ export function HealthBanner() {
       <AlertTriangle size={16} className="shrink-0 text-amber-450" />
       <p className="flex-1 text-sm text-mist">{message}</p>
       {!isError && (
-        <Link
-          to="/settings"
-          className="shrink-0 text-sm font-medium text-amber-450 hover:text-amber-350"
-        >
-          Check settings →
-        </Link>
+        <>
+          <Link
+            to="/setup"
+            className="shrink-0 text-sm font-medium text-amber-450 hover:text-amber-350"
+          >
+            Run setup
+          </Link>
+          <Link
+            to="/settings"
+            className="shrink-0 text-sm font-medium text-amber-450 hover:text-amber-350"
+          >
+            Check settings →
+          </Link>
+        </>
       )}
     </div>
   );

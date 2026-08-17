@@ -53,6 +53,8 @@ class FakeComfyState:
         self.interrupts = 0
         self.deleted: list[str] = []
         self.request_counts: dict[str, int] = {}
+        #: /system_stats payload; tests set ["devices"] to fake GPU/VRAM info
+        self.system_stats: dict = {"system": {"os": "fake"}}
         self.png = tiny_png()
 
     def count(self, path: str) -> None:
@@ -185,7 +187,7 @@ def build_app(state: FakeComfyState) -> Starlette:
 
     async def system_stats(request):
         state.count("/system_stats")
-        return JSONResponse({"system": {"os": "fake"}})
+        return JSONResponse(state.system_stats)
 
     return Starlette(
         routes=[

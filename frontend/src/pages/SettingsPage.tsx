@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, FlaskConical, Plus, Save, X } from "lucide-react";
+import { Link } from "react-router-dom";
+import {
+  ChevronDown,
+  ChevronRight,
+  FlaskConical,
+  Plus,
+  Save,
+  Wand2,
+  X,
+} from "lucide-react";
 import { apiGet, apiPut } from "../lib/api";
 import {
   healthDetail,
@@ -471,6 +480,8 @@ export function SettingsPage() {
   });
 
   const [comfyUrl, setComfyUrl] = useState("");
+  const [lorasDir, setLorasDir] = useState("");
+  const [trainerDir, setTrainerDir] = useState("");
   const [llmUrl, setLlmUrl] = useState("");
   const [llmKey, setLlmKey] = useState("");
   const [llmKeyDirty, setLlmKeyDirty] = useState(false);
@@ -484,6 +495,8 @@ export function SettingsPage() {
   useEffect(() => {
     if (settings && !loaded) {
       setComfyUrl(getSetting(settings, "comfyui_url"));
+      setLorasDir(getSetting(settings, "comfy_loras_dir"));
+      setTrainerDir(getSetting(settings, "lora_factory_dir"));
       setLlmUrl(getSetting(settings, "llm_base_url"));
       setLlmModel(getSetting(settings, "llm_model"));
       setStyleLoras(parseStyleLoras(getSetting(settings, "style_loras")));
@@ -585,7 +598,9 @@ export function SettingsPage() {
 
   const saveEngine = useMutation({
     mutationFn: () =>
-      apiPut("/api/settings", { values: { comfyui_url: comfyUrl.trim() } }),
+      apiPut("/api/settings", {
+        values: { comfyui_url: comfyUrl.trim(), comfy_loras_dir: lorasDir.trim() },
+      }),
     onSuccess: () => {
       toast("Settings saved.", "success");
       qc.invalidateQueries({ queryKey: ["settings"] });
@@ -594,6 +609,24 @@ export function SettingsPage() {
     },
     onError: (e: Error) => toast(e.message, "error"),
   });
+
+  const saveTrainer = useMutation({
+    mutationFn: () =>
+      apiPut("/api/settings", { values: { lora_factory_dir: trainerDir.trim() } }),
+    onSuccess: () => {
+      toast("Settings saved.", "success");
+      qc.invalidateQueries({ queryKey: ["settings"] });
+      qc.invalidateQueries({ queryKey: ["health"] });
+    },
+    onError: (e: Error) => toast(e.message, "error"),
+  });
+
+  const testTrainer = async () => {
+    const res = await refetchHealth();
+    const part = res.data?.trainer;
+    if (healthOk(part)) toast("Trainer folder found.", "success");
+    else toast(`Character trainer: ${healthDetail(part)}`, "error");
+  };
 
   const testEngine = async () => {
     const res = await refetchHealth();
@@ -637,9 +670,17 @@ export function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <div className="mb-7">
-        <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
-        <p className="mt-1 text-sm text-fog">What StoryBored is connected to.</p>
+      <div className="mb-7 flex items-end justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
+          <p className="mt-1 text-sm text-fog">What StoryBored is connected to.</p>
+        </div>
+        <Link
+          to="/setup"
+          className="flex items-center gap-1.5 text-sm font-medium text-amber-450 hover:text-amber-350"
+        >
+          <Wand2 size={14} /> Setup wizard
+        </Link>
       </div>
 
       {healthError && (
@@ -694,6 +735,16 @@ export function SettingsPage() {
                 value={comfyUrl}
                 onChange={(e) => setComfyUrl(e.target.value)}
                 placeholder="http://127.0.0.1:8188"
+              />
+            </Field>
+            <Field
+              label="LoRA folder"
+              hint="Where uploaded character files are copied so the engine can load them (the engine's models/loras folder). Optional — needed only for file uploads."
+            >
+              <Input
+                value={lorasDir}
+                onChange={(e) => setLorasDir(e.target.value)}
+                placeholder="/path/to/ComfyUI/models/loras"
               />
             </Field>
             <div className="flex justify-end gap-2">
@@ -758,6 +809,42 @@ export function SettingsPage() {
                 <FlaskConical size={14} /> Test
               </Button>
               <Button variant="primary" onClick={() => saveLlm.mutate()} busy={saveLlm.isPending}>
+                <Save size={14} /> Save
+              </Button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* trainer config */}
+      <section className="mb-6 rounded-xl border border-line bg-ink-900/40 p-5">
+        <h2 className="text-sm font-semibold">Character trainer</h2>
+        <p className="mt-1 text-xs text-fog">
+          Optional — enables training characters from photos. Point this at a
+          lora-factory-style checkout on this machine (see docs/TRAINING.md).
+        </p>
+        {settingsLoading ? (
+          <div className="mt-4 space-y-3">
+            <Skeleton className="h-9" />
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3.5">
+            <Field label="Trainer folder">
+              <Input
+                value={trainerDir}
+                onChange={(e) => setTrainerDir(e.target.value)}
+                placeholder="/path/to/lora-factory"
+              />
+            </Field>
+            <div className="flex justify-end gap-2">
+              <Button onClick={testTrainer} busy={healthFetching}>
+                <FlaskConical size={14} /> Test
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => saveTrainer.mutate()}
+                busy={saveTrainer.isPending}
+              >
                 <Save size={14} /> Save
               </Button>
             </div>

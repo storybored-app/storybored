@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState, type DragEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import {
   ArrowLeft,
   ArrowRight,
@@ -14,6 +15,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { useHealth } from "../components/HealthBanner";
 import {
   apiDelete,
   apiGet,
@@ -22,6 +24,7 @@ import {
   apiPost,
   mediaUrl,
 } from "../lib/api";
+import { healthOk } from "../lib/types";
 import type { Character, Job, ShootoutRow, TrainingInfo } from "../lib/types";
 import { handleFromName, isValidHandle, suggestTrigger } from "../lib/format";
 import { EmptyState, ErrorState, Skeleton } from "../components/EmptyState";
@@ -884,8 +887,34 @@ function TrainWizard({ onDone }: { onDone: () => void }) {
 
 /* ---------------- new character modal ---------------- */
 
+/** Shown in place of the wizard when no trainer is configured — the wizard
+ *  would otherwise let you upload 40 photos before failing on submit. */
+function TrainerNotConfigured({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="rounded-lg border border-line bg-ink-900 p-5 text-sm">
+      <p className="font-medium text-paper">Training isn't set up yet</p>
+      <p className="mt-1.5 text-xs leading-relaxed text-fog">
+        Training a character from photos drives an external trainer on this
+        machine, and none is configured. Point StoryBored at one in{" "}
+        <Link
+          to="/settings"
+          onClick={onClose}
+          className="text-amber-450 hover:text-amber-350"
+        >
+          Settings
+        </Link>{" "}
+        (docs/TRAINING.md walks through the trainer setup) — or skip training
+        entirely and use the <em>Import existing</em> tab with a character file
+        you already have.
+      </p>
+    </div>
+  );
+}
+
 function NewCharacterModal({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<"import" | "train">("import");
+  const { data: health } = useHealth();
+  const trainerOk = healthOk(health?.trainer);
   return (
     <Modal title="New character" onClose={onClose} wide>
       <div className="mb-5 flex gap-1 rounded-lg border border-line p-1">
@@ -906,7 +935,13 @@ function NewCharacterModal({ onClose }: { onClose: () => void }) {
           Train from photos
         </button>
       </div>
-      {tab === "import" ? <ImportTab onDone={onClose} /> : <TrainWizard onDone={onClose} />}
+      {tab === "import" ? (
+        <ImportTab onDone={onClose} />
+      ) : trainerOk ? (
+        <TrainWizard onDone={onClose} />
+      ) : (
+        <TrainerNotConfigured onClose={onClose} />
+      )}
     </Modal>
   );
 }

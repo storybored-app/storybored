@@ -8,7 +8,8 @@ Mode switching: the runner tracks the last ComfyUI model family used
 (image_gen → "image", video_gen → "video"; animatic and training jobs touch no
 ComfyUI model family). When the family changes and the COMFY_* commands are
 configured, it runs COMFY_FLUSH_CMD then COMFY_MODE_{IMAGE|VIDEO}_CMD via the
-shell, then polls {COMFYUI_URL}/system_stats (max 120s) before running the job.
+shell, then polls the effective ComfyUI URL's /system_stats (max 120s; DB
+setting override wins over COMFYUI_URL) before running the job.
 """
 
 import asyncio
@@ -445,8 +446,19 @@ class JobRunner:
         # switch commands + readiness poll both succeeded → family is now current
         self._last_family = family
 
+    def _effective_comfy_url(self) -> str:
+        """The ComfyUI URL jobs actually run against: DB override wins over env
+        (same resolution as the engine handlers and /api/health — a URL set
+        only in the Settings UI must gate job submission too)."""
+        # lazy import: api.settings_api pulls in FastAPI routing; keep the
+        # runner importable without it at module load.
+        from storybored.api.settings_api import effective_setting
+
+        with self.session_factory() as session:
+            return effective_setting(session, self.settings, "comfyui_url")
+
     async def _wait_for_comfy(self, job_id: int) -> None:
-        url = f"{self.settings.comfyui_url.rstrip('/')}/system_stats"
+        url = f"{self._effective_comfy_url().rstrip('/')}/system_stats"
         assert self._loop is not None
         deadline = self._loop.time() + COMFY_WAIT_S
         async with httpx.AsyncClient(timeout=5.0) as client:

@@ -23,6 +23,7 @@ storybored/
     pyproject.toml            # project name "storybored", python >=3.11
     storybored/
       main.py                 # FastAPI app, includes ALL routers, serves ../frontend/dist statically at /
+                              #   (dist missing → a small "run npm build" help page, not a silent 404)
       config.py               # pydantic-settings, reads .env (see env vars below)
       db.py  models.py        # SQLModel engine + tables
       schemas.py              # API request/response pydantic models
@@ -200,6 +201,30 @@ Infra:
   flags `supports_loras` (pack declares a LoRA splice point) +
   `supports_frame_position` (video pack can anchor the still as the LAST frame)
 - `GET/PUT /api/settings` · `GET /api/health` → {comfy, llm, trainer, ffmpeg} statuses.
+  Probes are STRICT — "ok" means the response looked like the right service, not
+  merely that something answered: comfy requires /system_stats to return 200 with
+  JSON containing a "system" key; llm requires {base}/models to return 200 JSON.
+  Status vocabulary: `ok` | `unreachable` (connect failed) | `unrecognized`
+  (answered, but not the expected service) | `error` (5xx) | `not_configured`;
+  trainer: `ok` | `missing` | `not_configured` (path is ~-expanded); ffmpeg: the
+  resolved binary path | `missing`.
+  Runtime-editable (DB wins over env) keys: comfyui_url, llm_base_url,
+  llm_api_key, llm_model, lora_factory_dir, comfy_loras_dir (where imported
+  character LoRA uploads are copied; ~-expanded), default_image_workflow,
+  default_video_workflow, style_loras, engine_loras, engine_models, plus
+  `setup_complete` (no env twin; "1" once the first-run setup wizard finished —
+  the UI stops auto-offering the wizard after that).
+- `GET /api/setup/probe` — one-shot deep probe for the setup wizard. Optional
+  query params `comfy_url` / `llm_url` / `trainer_dir` probe CANDIDATE values
+  without persisting anything (omitted → effective settings). Returns
+  `{comfy: {status, url, gpus: [{name, vram_gb|null}], tier},
+  llm: {status, url, models: [id…]}, trainer: {status, dir}, ffmpeg,
+  workflows: [{id, name, kind, available, missing_models}] (only when comfy ok),
+  tiers: {stills_min_vram_gb: 16, video_min_vram_gb: 24}}`.
+  GPU rows come straight from ComfyUI /system_stats (never invented; unknown
+  VRAM → null). `tier` ∈ board|stills|video: best-GPU VRAM rounded to whole GiB,
+  ≥24 → video (video engines + training-class), ≥16 → stills, else/no GPU/engine
+  down → board (board, script breakdown and animatic assembly still work).
   JSON-valued settings, validated on PUT: `style_loras` (list of {lora_name, strength?,
   enabled?} layered into every image render), `engine_loras` (object: pack id → list
   of baked-node overrides {node, strength?, enabled?} and/or appended {lora_name,
@@ -404,8 +429,21 @@ Routes:
 - `/p/:id/export`: approved-shots checklist w/ video status, per-shot render buttons,
   Render All, then Animatic section: Export button, job progress, download link +
   inline player when done.
-- `/settings`: engine URL + status dot, LLM config + "test" button, trainer dir,
-  workflow packs list w/ availability + missing models detail.
+- `/settings`: engine URL + LoRA folder + status dots, LLM config + "test"
+  button, trainer dir + "test", workflow packs list w/ availability + missing
+  models detail, link to the setup wizard.
+- `/setup`: first-run **setup wizard** — auto-offered (once per app load) when
+  `setup_complete` is unset AND the engine health isn't ok; always reachable
+  from Settings and the health banner. Steps: path choice ("I have an engine" /
+  "I need to install one" / "no GPU — boards only") → engine URL + Test
+  (GPU/VRAM/tier + pack availability via /api/setup/probe with candidate
+  params) → LLM (model dropdown from the probe; skippable) → trainer dir
+  (skippable) → summary; Finish PUTs only the settings the user actually set,
+  plus `setup_complete=1`.
+- Feature gating matches what /api/health reports: the train-from-photos tab
+  shows a "configure in Settings" panel when the trainer isn't ok (never a
+  wizard that 503s after photo upload), and Enhance / motion-draft buttons are
+  disabled with an explanatory tooltip when the LLM isn't ok.
 - Global: bottom-right **job tray** (SSE-live): queued/running jobs, progress bars,
   cancel buttons; collapses to a pill with count.
 

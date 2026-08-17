@@ -9,6 +9,7 @@ import { CharactersPage } from "./pages/CharactersPage";
 import { ScriptPage } from "./pages/ScriptPage";
 import { ExportPage } from "./pages/ExportPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { SetupPage } from "./pages/SetupPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -30,6 +31,7 @@ const router = createBrowserRouter([
       { path: "/p/:id/export", element: <ExportPage /> },
       { path: "/characters", element: <CharactersPage /> },
       { path: "/settings", element: <SettingsPage /> },
+      { path: "/setup", element: <SetupPage /> },
     ],
   },
 ]);
