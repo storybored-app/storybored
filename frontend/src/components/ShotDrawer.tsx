@@ -13,7 +13,9 @@ import {
   X,
 } from "lucide-react";
 import { apiDelete, apiGet, apiPatch, apiPost, mediaUrl } from "../lib/api";
+import { healthOk } from "../lib/types";
 import type { BoardProject, Job, Shot, Take, WorkflowManifest } from "../lib/types";
+import { useHealth } from "./HealthBanner";
 import { activeVideoJob, shotLabel, videoTake } from "../lib/format";
 import { statusLabel, StatusRing } from "./StatusRing";
 import { Button, Field, Input, Select, Spinner } from "./ui";
@@ -309,6 +311,13 @@ export function ShotDrawer({
   });
   const saveRef = useRef(save);
 
+  // Enhance / motion drafting need the writing assistant — gate the buttons
+  // instead of letting a click land a guaranteed 503 toast.
+  const { data: health } = useHealth();
+  const llmOk = healthOk(health?.llm);
+  const llmHint =
+    "The writing assistant isn't set up — add it in Settings (or the setup wizard) to draft this for you.";
+
   const enhance = useMutation({
     mutationFn: () =>
       apiPost<{ description: string }>(`/api/shots/${shotId}/enhance`, {
@@ -510,16 +519,18 @@ export function ShotDrawer({
                     <span className="text-[11px] text-fog">
                       {enhance.isPending ? "PromptSmith is polishing your notes…" : ""}
                     </span>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => enhance.mutate()}
-                      busy={enhance.isPending}
-                      disabled={!form.description.trim()}
-                      title="Rewrite these notes as a polished image prompt — the result lands here for you to review"
-                    >
-                      <Sparkles size={12} /> Enhance
-                    </Button>
+                    <span title={llmOk ? undefined : llmHint}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => enhance.mutate()}
+                        busy={enhance.isPending}
+                        disabled={!llmOk || !form.description.trim()}
+                        title="Rewrite these notes as a polished image prompt — the result lands here for you to review"
+                      >
+                        <Sparkles size={12} /> Enhance
+                      </Button>
+                    </span>
                   </div>
                 </div>
               </Field>
@@ -690,16 +701,18 @@ export function ShotDrawer({
                           ? "PromptSmith is drafting the motion…"
                           : ""}
                       </span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => generateMotion.mutate()}
-                        busy={generateMotion.isPending}
-                        disabled={!form.description.trim()}
-                        title="Draft a motion prompt from everything this shot knows — description, camera, dialogue and frame anchor. The result lands here for you to review."
-                      >
-                        <Sparkles size={12} /> Generate
-                      </Button>
+                      <span title={llmOk ? undefined : llmHint}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => generateMotion.mutate()}
+                          busy={generateMotion.isPending}
+                          disabled={!llmOk || !form.description.trim()}
+                          title="Draft a motion prompt from everything this shot knows — description, camera, dialogue and frame anchor. The result lands here for you to review."
+                        >
+                          <Sparkles size={12} /> Generate
+                        </Button>
+                      </span>
                     </div>
                   </div>
                 </Field>

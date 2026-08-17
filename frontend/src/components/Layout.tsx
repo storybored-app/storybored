@@ -1,11 +1,41 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { useEffect, useRef } from "react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { Clapperboard, Settings, Users } from "lucide-react";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { JobTray } from "./JobTray";
+import { useHealth } from "./HealthBanner";
+import { apiGet } from "../lib/api";
 import { useEvents } from "../lib/useEvents";
+import { healthOk, type SettingsMap } from "../lib/types";
+
+/** First run: while setup was never completed AND the engine isn't healthy,
+ *  steer to the setup wizard — once per app load, so it never traps anyone. */
+function useFirstRunSetup() {
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const { data: health } = useHealth();
+  const { data: settings } = useQuery<SettingsMap>({
+    queryKey: ["settings"],
+    queryFn: () => apiGet<SettingsMap>("/api/settings"),
+    retry: 1,
+  });
+  const offered = useRef(false);
+
+  useEffect(() => {
+    if (offered.current || pathname === "/setup") return;
+    if (!health || !settings) return;
+    const setupDone = settings.effective?.setup_complete === "1";
+    if (!setupDone && !healthOk(health.comfy)) {
+      offered.current = true;
+      navigate("/setup");
+    }
+  }, [health, settings, pathname, navigate]);
+}
 
 export function Layout() {
   useEvents();
+  useFirstRunSetup();
 
   const navCls = ({ isActive }: { isActive: boolean }) =>
     `flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium transition-colors ${

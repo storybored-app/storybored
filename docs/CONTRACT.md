@@ -356,8 +356,21 @@ Routes:
 - `/p/:id/export`: approved-shots checklist w/ video status, per-shot render buttons,
   Render All, then Animatic section: Export button, job progress, download link +
   inline player when done.
-- `/settings`: engine URL + status dot, LLM config + "test" button, trainer dir,
-  workflow packs list w/ availability + missing models detail.
+- `/settings`: engine URL + LoRA folder + status dots, LLM config + "test"
+  button, trainer dir + "test", workflow packs list w/ availability + missing
+  models detail, link to the setup wizard.
+- `/setup`: first-run **setup wizard** — auto-offered (once per app load) when
+  `setup_complete` is unset AND the engine health isn't ok; always reachable
+  from Settings and the health banner. Steps: path choice ("I have an engine" /
+  "I need to install one" / "no GPU — boards only") → engine URL + Test
+  (GPU/VRAM/tier + pack availability via /api/setup/probe with candidate
+  params) → LLM (model dropdown from the probe; skippable) → trainer dir
+  (skippable) → summary; Finish PUTs only the settings the user actually set,
+  plus `setup_complete=1`.
+- Feature gating matches what /api/health reports: the train-from-photos tab
+  shows a "configure in Settings" panel when the trainer isn't ok (never a
+  wizard that 503s after photo upload), and Enhance / motion-draft buttons are
+  disabled with an explanatory tooltip when the LLM isn't ok.
 - Global: bottom-right **job tray** (SSE-live): queued/running jobs, progress bars,
   cancel buttons; collapses to a pill with count.
 

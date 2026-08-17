@@ -178,6 +178,32 @@ export interface Health {
   [k: string]: HealthPart | undefined;
 }
 
+/** One GPU as reported by the engine (vram_gb null when it didn't say). */
+export interface SetupGpu {
+  name: string;
+  vram_gb: number | null;
+}
+
+/** What the machine can do, derived from reported VRAM (see /api/setup/probe). */
+export type CapabilityTier = "board" | "stills" | "video";
+
+/** GET /api/setup/probe — deep probe for the setup wizard. */
+export interface SetupProbe {
+  comfy: { status: string; url: string; gpus: SetupGpu[]; tier: CapabilityTier };
+  llm: { status: string; url: string; models: string[] };
+  trainer: { status: string; dir: string };
+  ffmpeg: string;
+  /** Pack availability against the probed engine (empty unless comfy ok). */
+  workflows: {
+    id: string;
+    name: string;
+    kind: string;
+    available: boolean;
+    missing_models: string[];
+  }[];
+  tiers: { stills_min_vram_gb: number; video_min_vram_gb: number };
+}
+
 /** GET /api/settings response: DB overrides + effective values (env merged in).
  *  `effective.llm_api_key_set` is a boolean — the key itself is never echoed. */
 export interface SettingsMap {
@@ -268,14 +294,26 @@ export function healthOk(part: HealthPart | undefined): boolean {
   return false;
 }
 
+/** Friendly copy for the backend's health-status vocabulary (see the
+ *  /api/health contract). Unknown strings pass through untouched. */
+const STATUS_LABELS: Record<string, string> = {
+  ok: "ok",
+  not_configured: "not set up",
+  unreachable: "can't be reached",
+  unrecognized: "something answered, but it doesn't look like the right service",
+  error: "reachable, but reporting a server error",
+  missing: "folder not found",
+};
+
 /** Human string for a health part. */
 export function healthDetail(part: HealthPart | undefined): string {
-  if (part == null) return "not configured";
-  if (typeof part === "string") return part;
+  if (part == null) return "not set up";
+  if (typeof part === "string") return STATUS_LABELS[part] ?? part;
   if (typeof part === "boolean") return part ? "ok" : "unavailable";
   if (typeof part === "object") {
     if (typeof part.detail === "string" && part.detail) return part.detail;
-    if (typeof part.status === "string" && part.status) return part.status;
+    if (typeof part.status === "string" && part.status)
+      return STATUS_LABELS[part.status] ?? part.status;
     return part.ok ? "ok" : "unavailable";
   }
   return "unknown";
