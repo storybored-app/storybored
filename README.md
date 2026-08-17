@@ -148,6 +148,18 @@ python -m storybored
 If PowerShell refuses to run `Activate.ps1`, allow local scripts once with
 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 
+**Prefer WSL2?** The macOS/Linux steps above apply verbatim inside a WSL2
+Ubuntu shell — that's the recommended route if you want the full feature set
+(including character training) on a Windows machine.
+
+**Prefer conda?** A conda env simply replaces the venv step, on any platform:
+
+```bash
+conda create -n storybored python=3.11 nodejs -c conda-forge
+conda activate storybored
+pip install -e backend       # then the frontend + run steps as above
+```
+
 **Windows caveat — character training.** The board, rendering, script AI and
 animatics all run natively on Windows. The *train-a-character-from-photos*
 pipeline shells out to bash scripts, so on Windows run StoryBored inside
