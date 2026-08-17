@@ -25,7 +25,8 @@ _SAVE_CLASSES = {"SaveImage", "SaveVideo"}
 
 #: LoRA loader classes we splice/override. Model-only loaders have no clip
 #: path (used by video packs, whose CLIP never routes through the LoRA chain).
-_LORA_CLASSES = {"LoraLoader", "LoraLoaderModelOnly"}
+LORA_CLASSES = {"LoraLoader", "LoraLoaderModelOnly"}
+_LORA_CLASSES = LORA_CLASSES  # internal alias
 _MODEL_ONLY_LORA = "LoraLoaderModelOnly"
 
 

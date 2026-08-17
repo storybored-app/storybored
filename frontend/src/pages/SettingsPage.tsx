@@ -4,19 +4,24 @@ import { Link } from "react-router-dom";
 import {
   ChevronDown,
   ChevronRight,
+  Download,
+  ExternalLink,
   FlaskConical,
   Plus,
+  RefreshCw,
   Save,
   Wand2,
   X,
 } from "lucide-react";
-import { apiGet, apiPut } from "../lib/api";
+import { apiGet, apiPost, apiPut } from "../lib/api";
+import { formatBytes } from "../lib/format";
 import {
   healthDetail,
   healthOk,
   type EngineLoraRow,
   type EngineModelSlot,
   type Health,
+  type MissingModelInfo,
   type SettingsMap,
   type StyleLora,
   type WorkflowManifest,
@@ -116,29 +121,39 @@ function ModelSlotRow({
   const options = slot.options.includes(slot.value)
     ? slot.options
     : [slot.value, ...slot.options];
+  const large = new Set(slot.large_files ?? []);
   return (
-    <div className="flex items-center gap-3 rounded-md border border-line/60 bg-ink-900 px-3 py-1.5">
-      <span className="shrink-0 text-xs text-fog">{slot.label}</span>
-      <Select
-        value={slot.value}
-        onChange={(e) => onPick(slot.key, e.target.value)}
-        className="h-8 min-w-0 flex-1 text-xs"
-      >
-        {options.map((name) => (
-          <option key={name} value={name}>
-            {name}
-            {name === slot.baked ? " (pack default)" : ""}
-          </option>
-        ))}
-      </Select>
-      {slot.value !== slot.baked && (
-        <button
-          onClick={() => onPick(slot.key, slot.baked)}
-          className="shrink-0 text-[10px] uppercase tracking-wide text-amber-450/80 hover:text-amber-450"
-          title={`Back to the pack default (${slot.baked})`}
+    <div className="rounded-md border border-line/60 bg-ink-900 px-3 py-1.5">
+      <div className="flex items-center gap-3">
+        <span className="shrink-0 text-xs text-fog">{slot.label}</span>
+        <Select
+          value={slot.value}
+          onChange={(e) => onPick(slot.key, e.target.value)}
+          className="h-8 min-w-0 flex-1 text-xs"
         >
-          swapped — reset
-        </button>
+          {options.map((name) => (
+            <option key={name} value={name}>
+              {name}
+              {name === slot.baked ? " (pack default)" : ""}
+              {large.has(name) ? " ⚠ very large" : ""}
+            </option>
+          ))}
+        </Select>
+        {slot.value !== slot.baked && (
+          <button
+            onClick={() => onPick(slot.key, slot.baked)}
+            className="shrink-0 text-[10px] uppercase tracking-wide text-amber-450/80 hover:text-amber-450"
+            title={`Back to the pack default (${slot.baked})`}
+          >
+            swapped — reset
+          </button>
+        )}
+      </div>
+      {large.has(slot.value) && (
+        <p className="mt-1 text-[11px] text-amber-450/90">
+          This file is over 24&nbsp;GB — likely more than a 24&nbsp;GB card can hold.
+          Prefer a quantized build of the same model if one exists.
+        </p>
       )}
     </div>
   );
@@ -147,15 +162,20 @@ function ModelSlotRow({
 function WorkflowRow({
   wf,
   availableLoras,
+  modelsDirSet,
   onMakeDefault,
   onSaveLoras,
   onSaveModels,
+  onDownload,
 }: {
   wf: WorkflowManifest;
   availableLoras: string[] | undefined;
+  /** True when the shared models folder is configured (enables Download). */
+  modelsDirSet: boolean;
   onMakeDefault: (wf: WorkflowManifest) => void;
   onSaveLoras: (packId: string, entries: EngineLoraEntry[]) => void;
   onSaveModels: (packId: string, slots: Record<string, string>) => void;
+  onDownload: (packId: string, filenames?: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [stack, setStack] = useState<EngineLoraRow[]>(wf.loras ?? []);
@@ -171,6 +191,12 @@ function WorkflowRow({
   }, [wfKey]);
 
   const missing = wf.missing_models ?? [];
+  // catalog-enriched rows; fall back to bare filenames if info is absent
+  const missingInfo: MissingModelInfo[] =
+    wf.missing_models_info ??
+    missing.map((f) => ({ filename: f, folder: "", downloadable: false }));
+  const anyDownloadable = missingInfo.some((m) => m.downloadable);
+  const missingNodes = wf.missing_nodes ?? [];
   const available = wf.available !== false;
   // No missing-model list + an error means the engine itself was unreachable —
   // don't mislabel that as "missing models".
@@ -219,8 +245,10 @@ function WorkflowRow({
           <Badge tone="green">ready</Badge>
         ) : unreachable ? (
           <Badge tone="amber">engine offline</Badge>
-        ) : (
+        ) : missing.length > 0 ? (
           <Badge tone="red">missing models</Badge>
+        ) : (
+          <Badge tone="red">missing nodes</Badge>
         )}
       </button>
       {open && (
@@ -230,15 +258,91 @@ function WorkflowRow({
               Can't reach the image engine — is it running? Set its address above.
             </p>
           )}
-          {!unreachable && missing.length > 0 && (
+          {!unreachable && missingInfo.length > 0 && (
+            <div className="mb-3">
+              <div className="mb-1.5 flex items-center gap-2">
+                <p className="flex-1 text-xs text-fog">
+                  This engine needs model files that aren't installed:
+                </p>
+                {anyDownloadable && modelsDirSet && (
+                  <Button size="sm" onClick={() => onDownload(wf.id)}>
+                    <Download size={13} /> Download all missing
+                  </Button>
+                )}
+              </div>
+              <ul className="space-y-1.5">
+                {missingInfo.map((m) => (
+                  <li
+                    key={m.filename}
+                    className="rounded-md border border-line/60 bg-ink-900 px-3 py-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-status-failed/90">
+                        {m.filename}
+                      </span>
+                      {m.size_bytes != null && (
+                        <span className="shrink-0 text-[10px] text-fog">
+                          {formatBytes(m.size_bytes)}
+                        </span>
+                      )}
+                      {(m.source || m.page) && (
+                        <a
+                          href={m.page ?? m.source}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex shrink-0 items-center gap-1 text-[10px] uppercase tracking-wide text-amber-450/80 hover:text-amber-450"
+                          title="Open the model's page"
+                        >
+                          <ExternalLink size={11} /> source
+                        </a>
+                      )}
+                      {m.downloadable && modelsDirSet && (
+                        <Button
+                          size="sm"
+                          onClick={() => onDownload(wf.id, [m.filename])}
+                          title="Fetch this file into the engine's models folder"
+                        >
+                          <Download size={13} /> Download
+                        </Button>
+                      )}
+                    </div>
+                    <p className="mt-0.5 text-[11px] text-fog">
+                      {m.folder ? (
+                        <>
+                          goes in{" "}
+                          <span className="font-mono">models/{m.folder}/</span>
+                        </>
+                      ) : (
+                        "see the engine's docs for the right folder"
+                      )}
+                      {m.license ? ` · ${m.license}` : ""}
+                    </p>
+                    {m.notes && !m.downloadable && (
+                      <p className="mt-0.5 text-[11px] text-fog/80">{m.notes}</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {anyDownloadable && !modelsDirSet && (
+                <p className="mt-1.5 text-[11px] text-fog">
+                  Some of these can be downloaded for you — set the models folder in
+                  the engine section above (works when StoryBored runs on the same
+                  computer as the engine). Otherwise use the source links and place
+                  each file in the folder shown.
+                </p>
+              )}
+            </div>
+          )}
+          {!unreachable && missingNodes.length > 0 && (
             <div className="mb-2">
               <p className="mb-1 text-xs text-fog">
-                This engine needs model files that aren't installed:
+                Missing custom nodes — install the node pack that provides each of
+                these in your rendering engine, then hit Refresh:
               </p>
               <ul className="space-y-0.5">
-                {missing.map((m) => (
-                  <li key={m} className="font-mono text-xs text-status-failed/90">
-                    {m}
+                {missingNodes.map((n) => (
+                  <li key={n} className="font-mono text-xs text-status-failed/90">
+                    {n}
                   </li>
                 ))}
               </ul>
@@ -482,6 +586,7 @@ export function SettingsPage() {
   const [comfyUrl, setComfyUrl] = useState("");
   const [lorasDir, setLorasDir] = useState("");
   const [trainerDir, setTrainerDir] = useState("");
+  const [modelsDir, setModelsDir] = useState("");
   const [llmUrl, setLlmUrl] = useState("");
   const [llmKey, setLlmKey] = useState("");
   const [llmKeyDirty, setLlmKeyDirty] = useState(false);
@@ -497,6 +602,7 @@ export function SettingsPage() {
       setComfyUrl(getSetting(settings, "comfyui_url"));
       setLorasDir(getSetting(settings, "comfy_loras_dir"));
       setTrainerDir(getSetting(settings, "lora_factory_dir"));
+      setModelsDir(getSetting(settings, "comfy_models_dir"));
       setLlmUrl(getSetting(settings, "llm_base_url"));
       setLlmModel(getSetting(settings, "llm_model"));
       setStyleLoras(parseStyleLoras(getSetting(settings, "style_loras")));
@@ -580,6 +686,38 @@ export function SettingsPage() {
     saveEngineModelsMut.mutate(next);
   };
 
+  // Re-check availability NOW: the server drops its 60s engine cache first, so
+  // models/nodes installed a moment ago show up without waiting.
+  const refreshWorkflows = useMutation({
+    mutationFn: () => apiGet<WorkflowManifest[]>("/api/workflows?refresh=true"),
+    onSuccess: (data) => qc.setQueryData(["workflows"], data),
+    onError: (e: Error) => toast(e.message, "error"),
+  });
+
+  // Fetch missing model files into the shared models folder (io-lane jobs —
+  // downloads never block renders; progress shows in the job tray).
+  const downloadModels = useMutation({
+    mutationFn: ({ packId, filenames }: { packId: string; filenames?: string[] }) =>
+      apiPost<{ queued: number; skipped: string[] }>(
+        `/api/workflows/${packId}/download-models`,
+        filenames ? { filenames } : {},
+      ),
+    onSuccess: (data) => {
+      if (data.queued > 0) {
+        toast(
+          `Downloading ${data.queued} model file${data.queued === 1 ? "" : "s"} — watch the job tray.`,
+          "success",
+        );
+      } else if (data.skipped.length > 0) {
+        toast("Those files have no verified download — use the notes to find them.", "error");
+      } else {
+        toast("Nothing to download — already fetching or nothing missing.", "success");
+      }
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+    },
+    onError: (e: Error) => toast(e.message, "error"),
+  });
+
   const makeDefault = useMutation({
     mutationFn: (wf: WorkflowManifest) =>
       apiPut("/api/settings", {
@@ -599,7 +737,11 @@ export function SettingsPage() {
   const saveEngine = useMutation({
     mutationFn: () =>
       apiPut("/api/settings", {
-        values: { comfyui_url: comfyUrl.trim(), comfy_loras_dir: lorasDir.trim() },
+        values: {
+          comfyui_url: comfyUrl.trim(),
+          comfy_loras_dir: lorasDir.trim(),
+          comfy_models_dir: modelsDir.trim(),
+        },
       }),
     onSuccess: () => {
       toast("Settings saved.", "success");
@@ -745,6 +887,16 @@ export function SettingsPage() {
                 value={lorasDir}
                 onChange={(e) => setLorasDir(e.target.value)}
                 placeholder="/path/to/ComfyUI/models/loras"
+              />
+            </Field>
+            <Field
+              label="Engine models folder (optional)"
+              hint="The engine's models directory, if it's on this computer — lets StoryBored download missing model files for you and warn about oversized ones."
+            >
+              <Input
+                value={modelsDir}
+                onChange={(e) => setModelsDir(e.target.value)}
+                placeholder="~/ComfyUI/models"
               />
             </Field>
             <div className="flex justify-end gap-2">
@@ -944,14 +1096,24 @@ export function SettingsPage() {
 
       {/* workflow packs */}
       <section className="overflow-hidden rounded-xl border border-line bg-ink-900/40">
-        <header className="border-b border-line px-4 py-3">
-          <h2 className="text-sm font-semibold">Engines</h2>
-          <p className="mt-0.5 text-xs text-fog">
-            Rendering styles installed on this system — the <em>default</em> one renders
-            shots that don't pick an engine. Expand a row to swap its base model and
-            edit the LoRAs it runs with. Add more engines by dropping a pack into the
-            workflows folder.
-          </p>
+        <header className="flex items-start gap-3 border-b border-line px-4 py-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold">Engines</h2>
+            <p className="mt-0.5 text-xs text-fog">
+              Rendering styles installed on this system — the <em>default</em> one renders
+              shots that don't pick an engine. Expand a row to swap its base model and
+              edit the LoRAs it runs with. Add more engines by dropping a pack into the
+              workflows folder.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => refreshWorkflows.mutate()}
+            busy={refreshWorkflows.isPending}
+            title="Re-check which models and nodes the engine has right now"
+          >
+            <RefreshCw size={13} /> Refresh
+          </Button>
         </header>
         {wfError ? (
           <p className="px-4 py-6 text-center text-sm text-fog">
@@ -971,9 +1133,13 @@ export function SettingsPage() {
                 key={wf.id}
                 wf={wf}
                 availableLoras={availableLoras}
+                modelsDirSet={!!getSetting(settings, "comfy_models_dir")}
                 onMakeDefault={(w) => makeDefault.mutate(w)}
                 onSaveLoras={saveEngineLoras}
                 onSaveModels={saveEngineModels}
+                onDownload={(packId, filenames) =>
+                  downloadModels.mutate({ packId, filenames })
+                }
               />
             ))}
           </ul>

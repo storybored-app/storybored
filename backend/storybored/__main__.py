@@ -1,7 +1,9 @@
 """`python -m storybored` / `storybored` — run the server on STORYBORED_PORT.
 
 Subcommands: `python -m storybored relocate <dest>` moves the data directory
-(offline maintenance op — refuses while the server is running)."""
+(offline maintenance op — refuses while the server is running), and
+`python -m storybored validate-pack <dir>` runs the offline pack linter
+(see engine/validate.py and docs/WORKFLOWS.md)."""
 
 import argparse
 import logging
@@ -64,6 +66,12 @@ def relocate(settings: Settings, dest_arg: str) -> int:
 
 
 def main() -> None:
+    # subcommand dispatch before the server arg parser (which owns the flags)
+    if len(sys.argv) > 1 and sys.argv[1] == "validate-pack":
+        from storybored.engine.validate import main as validate_main
+
+        raise SystemExit(validate_main(sys.argv[2:]))
+
     parser = argparse.ArgumentParser(prog="storybored", description="StoryBored server")
     parser.add_argument(
         "--demo", action="store_true", help="create the demo project before serving"

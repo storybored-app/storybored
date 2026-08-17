@@ -37,6 +37,7 @@ log = logging.getLogger("storybored")
 
 #: imported at startup so their job handlers self-register
 HANDLER_MODULES = [
+    "storybored.engine.download",
     "storybored.engine.image",
     "storybored.engine.video",
     "storybored.export.animatic",

@@ -57,6 +57,9 @@ STORYBORED_PORT=8600
 DATA_DIR=./data                      # sqlite db + media + exports live here
 COMFYUI_URL=http://127.0.0.1:8188
 COMFY_LORAS_DIR=                     # optional: where to copy imported character LoRAs
+COMFY_MODELS_DIR=                    # optional: ComfyUI's models/ dir (shared filesystem
+                                     # only) — enables the in-app model downloader +
+                                     # big-model size warnings; expanduser'd
 COMFY_MODE_IMAGE_CMD=                # optional shell cmd before image jobs (profile switchers)
 COMFY_MODE_VIDEO_CMD=                # optional shell cmd before video jobs
 COMFY_FLUSH_CMD=                     # optional shell cmd between model-family switches
@@ -83,13 +86,15 @@ Unset optional vars = feature gracefully degrades (UI shows "not configured", ne
 - **take**: id, shot_id FK, kind in image|video, status in pending|done|failed,
   file_path nullable, thumb_path nullable, workflow_id, params_json, seed int,
   error nullable, created_at
-- **job**: id, type in image_gen|video_gen|animatic|dataset_prep|lora_train|lora_shootout,
-  status in queued|running|done|failed|cancelled, lane str ("gpu" for all v1 types),
-  project_id nullable (set at enqueue whenever the job belongs to a project —
-  image_gen/video_gen/animatic/project_export; character + training jobs stay null;
-  soft reference, no FK), payload_json, result_json nullable, error nullable,
-  progress float=0, detail str="" (human-readable current step), created_at,
-  started_at, finished_at
+- **job**: id, type in image_gen|video_gen|animatic|dataset_prep|lora_train|lora_shootout
+  |project_export|model_download, status in queued|running|done|failed|cancelled,
+  lane str ("gpu" for every GPU type — the single-GPU-lane invariant; "io" for
+  project_export and model_download, so archive writes and multi-GB fetches never
+  block renders), project_id nullable (set at enqueue whenever the job belongs to
+  a project — image_gen/video_gen/animatic/project_export; character + training
+  jobs stay null; soft reference, no FK), payload_json, result_json nullable,
+  error nullable, progress float=0, detail str="" (human-readable current step),
+  created_at, started_at, finished_at
 
 Foreign keys are enforced (`PRAGMA foreign_keys=ON` on every sqlite connection):
 scene→project, shot→scene, take→shot and shotcharacter links cannot outlive
@@ -122,7 +127,12 @@ Generation:
 - `GET /api/shots/{id}/takes` · `POST /api/takes/{id}/pick` · `DELETE /api/takes/{id}`
 - `POST /api/shots/{id}/approve` / `POST /api/shots/{id}/unapprove`
 - `POST /api/shots/{id}/render-video {workflow_id?, motion_prompt?, frame_position?}` →
-  {job_id}; motion_prompt/frame_position persist onto the shot before the job queues
+  {job_id}; motion_prompt/frame_position persist onto the shot before the job queues.
+  Pre-flights the resolved video pack exactly like the image path: 503 when the
+  engine is unreachable, 409 listing missing models/nodes — never enqueues blind.
+  The pack resolves as explicit id → `default_video_workflow` setting → first
+  video pack by id (no hardcoded default). `render-videos` runs the same gate
+  once for the whole batch.
 - `POST /api/projects/{id}/render-videos {}` → queue video for every approved shot lacking one
 - `POST /api/projects/{id}/animatic` → {job_id}; result_json.file_path = MP4 under DATA_DIR/exports
 - `GET /api/projects/{id}/exports`
@@ -191,8 +201,23 @@ Infra:
 - `GET /api/events` — SSE. Event types: `job` (full job row on any change),
   `shot` (shot row on status/take change), `take`, `character`. data = JSON row.
 - `GET /api/workflows` → registry with per-workflow `available: bool` +
-  `missing_models: [str]` (validated against ComfyUI /object_info enums, cached 60s),
-  plus `default: bool` (per kind, from default_image/video_workflow), the pack's baked
+  `missing_models: [str]` + `missing_nodes: [str]` (validated against ComfyUI
+  /object_info, cached 60s; `?refresh=true` drops the cache first — the Settings
+  "Refresh" button). Availability checks the **effective** model set: an
+  `engine_models` slot swap replaces the baked filename in the required set, and
+  a baked LoRA toggled off via `engine_loras` drops out of it. `missing_nodes`
+  lists graph node classes (plus manifest `required_nodes` extras) the engine
+  doesn't have — a missing custom node pack, distinct from missing model files.
+  Each missing file also appears in `missing_models_info: [{filename, folder,
+  downloadable, source?, page?, size_bytes?, license?, notes?}]`, enriched from the
+  model catalog (`workflows/catalog.json`, merged with `DATA_DIR/workflows/
+  catalog.json` — user entries win per filename): destination ComfyUI folder
+  (from the loader class), verified download URL + byte size + license when the
+  catalog has them, honest search guidance (`notes`, no URL) for
+  community-sourced files. When `comfy_models_dir` is set, each `models` slot row
+  additionally carries `large_files: [str]` — dropdown options whose on-disk size
+  exceeds 24 GB (the documented offload lesson; stat failures are silently skipped).
+  Also per workflow: `default: bool` (per kind, from default_image/video_workflow), the pack's baked
   `loras: [{node, lora_name, strength, baked_strength, enabled, disabled_with_character}]`
   in chain order with user overrides applied, `added_loras: [{lora_name, strength,
   enabled}]`, `loras_modified: bool`, the pack's swappable
@@ -200,6 +225,14 @@ Infra:
   dropdown enum for that loader input) with `models_modified: bool`, and capability
   flags `supports_loras` (pack declares a LoRA splice point) +
   `supports_frame_position` (video pack can anchor the still as the LAST frame)
+- `POST /api/workflows/{id}/download-models {filenames?: [str]}` →
+  `{job_ids, queued, skipped}` — enqueue one `model_download` job (lane "io") per
+  missing file that has a verified catalog source, streamed into
+  `{comfy_models_dir}/{folder}/{filename}` (`.part` staging, size verified when the
+  catalog knows it, /object_info cache flushed on completion). Files without a
+  verified source come back in `skipped`. Filenames already queued/running are not
+  double-queued. 409 when `comfy_models_dir` is unset, 404 unknown pack, 503 when
+  the engine is unreachable (can't compute what's missing).
 - `GET/PUT /api/settings` · `GET /api/health` → {comfy, llm, trainer, ffmpeg} statuses.
   Probes are STRICT — "ok" means the response looked like the right service, not
   merely that something answered: comfy requires /system_stats to return 200 with
@@ -208,12 +241,14 @@ Infra:
   (answered, but not the expected service) | `error` (5xx) | `not_configured`;
   trainer: `ok` | `missing` | `not_configured` (path is ~-expanded); ffmpeg: the
   resolved binary path | `missing`.
-  Runtime-editable (DB wins over env) keys: comfyui_url, llm_base_url,
-  llm_api_key, llm_model, lora_factory_dir, comfy_loras_dir (where imported
-  character LoRA uploads are copied; ~-expanded), default_image_workflow,
-  default_video_workflow, style_loras, engine_loras, engine_models, plus
-  `setup_complete` (no env twin; "1" once the first-run setup wizard finished —
-  the UI stops auto-offering the wizard after that).
+  Runtime-editable (DB wins over env) keys: comfyui_url (PUT flushes the
+  /object_info cache), llm_base_url, llm_api_key, llm_model, lora_factory_dir,
+  comfy_loras_dir (where imported character LoRA uploads are copied; ~-expanded),
+  comfy_models_dir (base ComfyUI models directory; enables in-app downloads +
+  size warnings), default_image_workflow, default_video_workflow, style_loras,
+  engine_loras, engine_models, plus `setup_complete` (no env twin; "1" once the
+  first-run setup wizard finished — the UI stops auto-offering the wizard after
+  that).
 - `GET /api/setup/probe` — one-shot deep probe for the setup wizard. Optional
   query params `comfy_url` / `llm_url` / `trainer_dir` probe CANDIDATE values
   without persisting anything (omitted → effective settings). Returns

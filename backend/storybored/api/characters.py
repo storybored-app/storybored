@@ -15,6 +15,7 @@ from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from storybored.api.preflight import require_pack_available, resolve_pack
 from storybored.api.settings_api import effective_setting
 from storybored.db import get_session
 from storybored.engine import registry
@@ -270,33 +271,9 @@ async def generate_thumbnail(
         )
     settings = request.app.state.settings
     packs = registry.load_packs(settings)
-    workflow_id = body.workflow_id or effective_setting(
-        session, settings, "default_image_workflow"
-    )
-    if not workflow_id:
-        workflow_id = registry.default_workflow_id(packs, kind="image")
-    if not workflow_id:
-        raise HTTPException(status_code=503, detail="no image workflow packs installed")
-    pack = packs.get(workflow_id)
-    if pack is None:
-        raise HTTPException(status_code=404, detail=f"unknown workflow '{workflow_id}'")
-    if pack.manifest.get("kind", "image") != "image":
-        raise HTTPException(
-            status_code=400, detail=f"workflow '{workflow_id}' is not an image workflow"
-        )
-    comfy_url = effective_setting(session, settings, "comfyui_url")
-    availability = await registry.pack_availability(pack, ComfyClient(comfy_url))
-    if availability["error"]:
-        raise HTTPException(
-            status_code=503,
-            detail=f"engine unreachable — cannot render a portrait: {availability['error']}",
-        )
-    if not availability["available"]:
-        missing = ", ".join(availability["missing_models"])
-        raise HTTPException(
-            status_code=409,
-            detail=f"workflow '{workflow_id}' is missing models: {missing}",
-        )
+    pack = resolve_pack(session, settings, packs, body.workflow_id, kind="image")
+    workflow_id = pack.id
+    await require_pack_available(session, settings, pack, "cannot render a portrait")
 
     payload = {"character_id": character_id, "workflow_id": workflow_id}
     if body.prompt:

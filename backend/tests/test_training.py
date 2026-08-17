@@ -117,7 +117,10 @@ rows = [
     (1, a.job, 1.0, 8.93, 9.10, 8.2, 8.5, 0, 2),
     (2, a.job + "_000002500", 0.7, 8.12, 8.30, 8.0, 7.9, 1, 2),
 ]
-hdr = f"{'rank':<5}{'checkpoint':<34}{'str':<6}{'TOTAL':<7}{'likeness':<10}{'prompt':<8}{'clean':<7}{'no-face'}"
+hdr = (
+    f"{'rank':<5}{'checkpoint':<34}{'str':<6}{'TOTAL':<7}"
+    f"{'likeness':<10}{'prompt':<8}{'clean':<7}{'no-face'}"
+)
 lines = [hdr, "-" * len(hdr)]
 for r, ck, s, total, like, pm, cl, nf, n in rows:
     lines.append(f"{r:<5}{ck:<34}{s:<6}{total:<7.2f}{like:<10.2f}{pm:<8.1f}{cl:<7.1f}{nf}/{n}")

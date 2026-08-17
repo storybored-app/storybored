@@ -13,7 +13,8 @@ export type JobType =
   | "lora_train"
   | "lora_shootout"
   | "character_thumb"
-  | "project_export";
+  | "project_export"
+  | "model_download";
 export type CharacterStatus = "ready" | "dataset" | "training" | "trained";
 
 export interface Project {
@@ -127,6 +128,25 @@ export interface EngineModelSlot {
   baked: string;
   /** Engine dropdown choices ([] when the engine is unreachable). */
   options: string[];
+  /** Options whose on-disk size likely exceeds a 24 GB card (only populated
+   *  when COMFY_MODELS_DIR is configured and the file could be statted). */
+  large_files?: string[];
+}
+
+/** Catalog info for one missing model file (GET /api/workflows). */
+export interface MissingModelInfo {
+  filename: string;
+  /** ComfyUI models/ subfolder the file belongs in (e.g. "diffusion_models"). */
+  folder: string;
+  /** True when a verified source URL exists — the in-app downloader can fetch it. */
+  downloadable: boolean;
+  /** Verified direct download URL (absent for community-sourced files). */
+  source?: string;
+  /** Human page to visit (model card / hub page). */
+  page?: string;
+  size_bytes?: number;
+  license?: string;
+  notes?: string;
 }
 
 /** One baked-in LoRA of an engine pack, with any user override applied. */
@@ -147,6 +167,10 @@ export interface WorkflowManifest {
   parameters?: WorkflowParameter[];
   available?: boolean;
   missing_models?: string[];
+  /** Catalog info per missing file: destination folder, verified link, size. */
+  missing_models_info?: MissingModelInfo[];
+  /** Node classes the graph uses that this engine doesn't have installed. */
+  missing_nodes?: string[];
   /** Set by GET /api/workflows when the engine couldn't be reached at all. */
   error?: string;
   /** True for the engine used when a shot doesn't pick one (per kind). */

@@ -17,9 +17,11 @@ from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from storybored.api.preflight import require_pack_available, resolve_pack
 from storybored.api.projects import get_project_or_404
 from storybored.api.shots import get_shot_or_404
 from storybored.db import get_session
+from storybored.engine import registry
 from storybored.models import Scene, Shot, Take
 
 router = APIRouter(prefix="/api", tags=["export"])
@@ -56,8 +58,21 @@ def _enqueue_video(
     return request.app.state.runner.enqueue("video_gen", payload, project_id=project_id)
 
 
+async def _preflight_video(
+    request: Request, session: Session, workflow_id: str | None
+) -> None:
+    """Same gate the image path has: resolve the video pack (explicit id or the
+    default) and 409/503 before enqueueing a job that could never render."""
+    settings = request.app.state.settings
+    packs = registry.load_packs(settings)
+    pack = resolve_pack(session, settings, packs, workflow_id, kind="video")
+    await require_pack_available(
+        session, settings, pack, f"cannot validate workflow '{pack.id}'"
+    )
+
+
 @router.post("/shots/{shot_id}/render-video")
-def render_video(
+async def render_video(
     shot_id: int,
     request: Request,
     body: RenderVideoBody | None = None,
@@ -66,6 +81,7 @@ def render_video(
     shot = get_shot_or_404(session, shot_id)
     _require_renderable(session, shot)
     body = body or RenderVideoBody()
+    await _preflight_video(request, session, body.workflow_id)
     if body.motion_prompt is not None or body.frame_position is not None:
         if body.motion_prompt is not None:
             shot.motion_prompt = body.motion_prompt
@@ -86,11 +102,13 @@ def render_video(
 
 
 @router.post("/projects/{project_id}/render-videos")
-def render_videos(
+async def render_videos(
     project_id: int, request: Request, session: Session = Depends(get_session)
 ):
     """Queue one video_gen per approved shot that has no video take yet."""
     get_project_or_404(session, project_id)
+    # every queued job uses the default video pack — one gate covers the batch
+    await _preflight_video(request, session, None)
     shots = session.exec(
         select(Shot)
         .join(Scene, Scene.id == Shot.scene_id)  # type: ignore[arg-type]

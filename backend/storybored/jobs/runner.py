@@ -39,8 +39,8 @@ JOB_FAMILY: dict[str, str] = {
 }
 
 #: "gpu" = every ComfyUI/trainer job, strictly serialized (the concurrency
-#: model — see ARCHITECTURE.md). "io" = local disk work (archive export etc.)
-#: that must never queue behind a 3-hour training run.
+#: model — see ARCHITECTURE.md). "io" = local disk/network work (archive
+#: export, model downloads) that must never queue behind a 3-hour training run.
 LANES = ("gpu", "io")
 
 COMFY_WAIT_S = 120.0

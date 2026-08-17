@@ -1,16 +1,15 @@
 # OWNED-BY: engine-agent
 """POST /api/shots/{id}/generate — validate the workflow, enqueue an image_gen job."""
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
-from storybored.api.settings_api import effective_setting
+from storybored.api.preflight import require_pack_available, resolve_pack
 from storybored.api.shots import get_shot_or_404
 from storybored.db import get_session
 from storybored.engine import registry
-from storybored.engine.comfy_client import ComfyClient
 from storybored.models import Scene
 
 router = APIRouter(prefix="/api", tags=["generate"])
@@ -33,36 +32,11 @@ async def generate_shot(
     settings = request.app.state.settings
     packs = registry.load_packs(settings)
 
-    workflow_id = body.workflow_id or effective_setting(
-        session, settings, "default_image_workflow"
+    pack = resolve_pack(session, settings, packs, body.workflow_id, kind="image")
+    workflow_id = pack.id
+    await require_pack_available(
+        session, settings, pack, f"cannot validate workflow '{workflow_id}'"
     )
-    if not workflow_id:
-        workflow_id = registry.default_workflow_id(packs, kind="image")
-    if not workflow_id:
-        raise HTTPException(status_code=503, detail="no image workflow packs installed")
-
-    pack = packs.get(workflow_id)
-    if pack is None:
-        raise HTTPException(status_code=404, detail=f"unknown workflow '{workflow_id}'")
-    if pack.manifest.get("kind", "image") != "image":
-        raise HTTPException(
-            status_code=400, detail=f"workflow '{workflow_id}' is not an image workflow"
-        )
-
-    comfy_url = effective_setting(session, settings, "comfyui_url")
-    availability = await registry.pack_availability(pack, ComfyClient(comfy_url))
-    if availability["error"]:
-        raise HTTPException(
-            status_code=503,
-            detail=f"engine unreachable — cannot validate workflow '{workflow_id}': "
-            f"{availability['error']}",
-        )
-    if not availability["available"]:
-        missing = ", ".join(availability["missing_models"])
-        raise HTTPException(
-            status_code=409,
-            detail=f"workflow '{workflow_id}' is missing models: {missing}",
-        )
 
     shot.status = "queued"
     session.add(shot)

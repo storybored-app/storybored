@@ -16,10 +16,22 @@ export function formatDuration(s: number): string {
   return `${Math.round(s * 10) / 10}s`;
 }
 
+/** "13.1 GB" / "242 MB" style size for the model shopping list. */
+export function formatBytes(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "";
+  if (n >= 2 ** 30) return `${(n / 2 ** 30).toFixed(1)} GB`;
+  if (n >= 2 ** 20) return `${Math.round(n / 2 ** 20)} MB`;
+  return `${Math.max(1, Math.round(n / 1024))} KB`;
+}
+
 export function jobTypeLabel(t: Job["type"]): string {
   switch (t) {
     case "image_gen":
       return "Generating stills";
+    case "model_download":
+      return "Downloading model";
+    case "character_thumb":
+      return "Rendering portrait";
     case "video_gen":
       return "Rendering video";
     case "animatic":

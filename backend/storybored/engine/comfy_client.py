@@ -236,6 +236,16 @@ class ComfyClient:
         _object_info_cache[key] = (now, data)
         return data
 
+    async def has_node_class(self, class_type: str) -> bool:
+        """Whether this ComfyUI install knows the node class.
+
+        Real ComfyUI answers ``/object_info/{class}`` with ``{}`` for classes
+        it doesn't have (custom node pack not installed, or a core node newer
+        than the install), so a missing key means a missing node.
+        """
+        info = await self.object_info(class_type)
+        return class_type in info
+
     async def model_enum(self, class_type: str, input_name: str) -> list[str]:
         """The dropdown choices for e.g. ("LoraLoader", "lora_name").
 

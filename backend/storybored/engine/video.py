@@ -4,7 +4,8 @@
 Flow (docs/CONTRACT.md):
   1. Guard: shot must be `approved` with a finished picked image take.
   2. Upload the picked still to the engine (POST /upload/image via the client).
-  3. Build the graph from a video workflow pack (default: minimax-h3-i2v):
+  3. Build the graph from a video workflow pack (explicit id, else the
+     default_video_workflow setting, else the first video pack by id):
      - `first_frame` param ← the uploaded image's server-side name
      - `prompt` param ← shot.motion_prompt (fallback shot.description) with
        `@handle` mentions replaced by "{trigger} {class_word}"
@@ -50,7 +51,6 @@ from storybored.jobs.registry import register
 from storybored.jobs.runner import JobCancelled
 from storybored.models import Character, Project, Scene, Shot, Take
 
-DEFAULT_WORKFLOW = "minimax-h3-i2v"
 #: video generation is slow — never cap the wait below 15 minutes (contract)
 VIDEO_TIMEOUT_S = 3600.0
 THUMB_PX = 384
@@ -131,9 +131,20 @@ def _update_take(ctx, take_id: int, **fields) -> None:
 async def video_gen(job, ctx):
     payload = json.loads(job.payload_json or "{}")
     shot_id = payload.get("shot_id")
-    workflow_id = payload.get("workflow_id") or DEFAULT_WORKFLOW
+    workflow_id = payload.get("workflow_id")
     user_params = dict(payload.get("params") or {})
     settings = ctx.settings
+
+    # -- resolve the pack: explicit id, else the default_video_workflow setting,
+    #    else the deterministic default (mirrors the image side — data-driven,
+    #    no hardcoded pack id) --------------------------------------------------
+    if not workflow_id:
+        with ctx.session_factory() as session:
+            workflow_id = effective_setting(session, settings, "default_video_workflow")
+    if not workflow_id:
+        workflow_id = registry.default_workflow_id(registry.load_packs(settings), "video")
+    if not workflow_id:
+        raise RuntimeError("no video workflow packs installed")
 
     # -- load shot + guards: approved, finished picked still ------------------
     with ctx.session_factory() as session:
