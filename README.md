@@ -78,6 +78,23 @@ animatic MP4.
 You need: Python 3.11+, Node 20+, and a running [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
 instance (local or on another machine you can reach).
 
+### Works with any ComfyUI
+
+StoryBored talks to ComfyUI **purely over its HTTP API** — it never touches
+ComfyUI's files or install layout. Portable zip, git checkout, ComfyUI
+Desktop, a manager-based install, even ComfyUI on a different machine: if the
+API answers, it works.
+
+- Point `COMFYUI_URL` (or the setup wizard) at the address ComfyUI prints on
+  startup. The classic server defaults to `http://127.0.0.1:8188`; **ComfyUI
+  Desktop uses its own port** — check its server settings for the address.
+- ComfyUI on another machine? Start it with `--listen` so it accepts network
+  connections, then use `http://that-machine:8188`. (The in-app model
+  downloader needs StoryBored and ComfyUI on the same filesystem; on a remote
+  engine you get download links and target folders instead.)
+
+### macOS / Linux
+
 ```bash
 git clone https://github.com/storybored-app/storybored.git
 cd storybored
@@ -90,7 +107,7 @@ $EDITOR .env
 #    Modern Debian/Ubuntu and Homebrew macOS mark the system Python
 #    "externally managed" and refuse a bare `pip install`, so make a venv first.
 python3 -m venv .venv
-. .venv/bin/activate        # Windows: .venv\Scripts\activate
+. .venv/bin/activate
 pip install -e backend
 
 # 3. Frontend (built once, served by the backend)
@@ -100,11 +117,44 @@ npm --prefix frontend i && npm --prefix frontend run build
 python3 -m storybored
 ```
 
-Every command above runs on stock Debian/Ubuntu and macOS. The venv keeps
-StoryBored's dependencies out of your system Python; activate it (`.
-.venv/bin/activate`) in any new shell before running `python3 -m storybored`
-again. Prefer [uv](https://docs.astral.sh/uv/)? `uv venv && uv pip install -e
-backend` does the same thing.
+The venv keeps StoryBored's dependencies out of your system Python; activate
+it (`. .venv/bin/activate`) in any new shell before running
+`python3 -m storybored` again. Prefer [uv](https://docs.astral.sh/uv/)?
+`uv venv && uv pip install -e backend` does the same thing.
+
+### Windows (PowerShell)
+
+```powershell
+git clone https://github.com/storybored-app/storybored.git
+cd storybored
+
+# 1. Configure — point COMFYUI_URL at your ComfyUI instance
+copy .env.example .env
+notepad .env
+
+# 2. Backend, in a virtualenv
+py -3.11 -m venv .venv          # plain `python` works too if it's 3.11+
+.venv\Scripts\Activate.ps1
+pip install -e backend
+
+# 3. Frontend (built once, served by the backend)
+npm --prefix frontend install
+npm --prefix frontend run build
+
+# 4. Run (same shell, venv still active)
+python -m storybored
+```
+
+If PowerShell refuses to run `Activate.ps1`, allow local scripts once with
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+
+**Windows caveat — character training.** The board, rendering, script AI and
+animatics all run natively on Windows. The *train-a-character-from-photos*
+pipeline shells out to bash scripts, so on Windows run StoryBored inside
+[WSL2](https://learn.microsoft.com/windows/wsl/install) (Ubuntu) if you want
+training, and point `COMFYUI_URL` at your Windows ComfyUI. Everything else is
+fine natively — you can also simply import ready-made character LoRA files
+instead of training your own.
 
 Open <http://localhost:8600>.
 
