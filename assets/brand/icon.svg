@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="StoryBored icon">
+  <title>StoryBored</title>
+  <rect width="512" height="512" rx="116" fill="#0a0a0c"/>
+  <!-- storyboard: three empty panels, one lit -->
+  <rect x="276" y="76" width="160" height="160" rx="26" fill="none" stroke="#8b8a94" stroke-opacity="0.5" stroke-width="14"/>
+  <rect x="76" y="276" width="160" height="160" rx="26" fill="none" stroke="#8b8a94" stroke-opacity="0.5" stroke-width="14"/>
+  <rect x="276" y="276" width="160" height="160" rx="26" fill="none" stroke="#8b8a94" stroke-opacity="0.5" stroke-width="14"/>
+  <rect x="76" y="76" width="160" height="160" rx="26" fill="#f0b429"/>
+  <path d="M138 122 L196 156 L138 190 Z" fill="#0a0a0c" stroke="#0a0a0c" stroke-width="14" stroke-linejoin="round"/>
+</svg>
