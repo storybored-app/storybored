@@ -44,7 +44,7 @@ GOOD_MANIFEST = {
 
 
 def test_shipped_packs_validate_clean():
-    for pack_dir in sorted(REPO_WORKFLOWS.iterdir()):
+    for pack_dir in sorted(p for p in REPO_WORKFLOWS.iterdir() if p.is_dir()):
         report = validate_pack(pack_dir)
         assert report.ok, (pack_dir.name, report.errors)
         assert not report.has_drift, (pack_dir.name, report.drift_missing, report.drift_extra)

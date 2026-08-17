@@ -54,6 +54,15 @@ class Settings(BaseSettings):
     )
     comfyui_url: str = "http://127.0.0.1:8188"
     comfy_loras_dir: str = ""
+    comfy_models_dir: str = Field(
+        default="",
+        description=(
+            "Optional: ComfyUI's base models directory (the folder containing "
+            "diffusion_models/, text_encoders/, vae/, loras/). Only meaningful "
+            "when StoryBored and ComfyUI share a filesystem — enables the "
+            "in-app model downloader and the big-model size warnings."
+        ),
+    )
     comfy_mode_image_cmd: str = ""
     comfy_mode_video_cmd: str = ""
     comfy_flush_cmd: str = ""

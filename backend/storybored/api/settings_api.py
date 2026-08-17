@@ -23,6 +23,7 @@ OVERRIDABLE = {
     "llm_api_key",
     "llm_model",
     "comfyui_url",
+    "comfy_models_dir",
     "lora_factory_dir",
     "default_image_workflow",
     "default_video_workflow",

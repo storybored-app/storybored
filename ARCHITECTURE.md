@@ -30,6 +30,7 @@ storybored/
 │   ├── WORKFLOWS.md             # engine-pack authoring guide
 │   └── TRAINING.md              # character training guide
 ├── workflows/                   # shipped engine packs (also scanned: DATA_DIR/workflows/)
+│   ├── catalog.json             #   model catalog: filename → verified source/size/license
 │   ├── krea2-basic/             #   image: UNET + distill lora only
 │   ├── krea2-realism/           #   image: full realism lora stack
 │   └── minimax-h3-i2v/          #   video: image-to-video + audio
@@ -48,11 +49,15 @@ storybored/
 │   │   ├── api/                 # one router per resource, all under /api
 │   │   │   ├── projects.py scenes.py shots.py characters.py
 │   │   │   ├── jobs.py generate.py breakdown.py export.py settings_api.py
-│   │   │   └── workflows_api.py training.py health.py media.py
+│   │   │   ├── workflows_api.py training.py health.py media.py
+│   │   │   └── preflight.py     # shared availability gate for the generate endpoints
 │   │   ├── engine/
 │   │   │   ├── comfy_client.py  # POST /prompt, poll /history, fetch /view, upload images
 │   │   │   ├── graph.py         # param application + character LoRA splice (pure functions)
-│   │   │   ├── registry.py      # pack discovery + /object_info availability validation
+│   │   │   ├── registry.py      # pack discovery + effective-availability validation
+│   │   │   ├── catalog.py       # model catalog loading + big-model guardrail
+│   │   │   ├── download.py      # model_download job (io lane, streams into COMFY_MODELS_DIR)
+│   │   │   ├── validate.py      # `python -m storybored validate-pack` offline linter
 │   │   │   ├── image.py         # image_gen job logic (takes, thumbs)
 │   │   │   └── video.py         # video_gen job logic (first-frame upload)
 │   │   ├── jobs/                # runner.py (DB-backed queue, one asyncio worker per lane)
@@ -76,7 +81,8 @@ training staging, and user workflow packs.
    time, strictly serialized by `jobs/runner.py`. This is the concurrency
    model for the whole app — a 3-hour training run *should* block generations.
    Never add a second GPU consumer or a bypass path; add new lanes only for
-   non-GPU work.
+   non-GPU work (the `io` lane exists for exactly that: model downloads and
+   other network/disk jobs run there without touching the GPU queue).
 2. **The workflow-pack contract is the only engine coupling.** Backend code
    never hardcodes node ids, model names, or graph shapes. Everything
    graph-specific comes from `manifest.json` (`parameters`, `output_node`,

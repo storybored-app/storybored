@@ -37,7 +37,9 @@ JOB_FAMILY: dict[str, str] = {
     "lora_shootout": "image",
 }
 
-LANES = ("gpu",)
+#: "gpu" serializes every GPU job (the concurrency model — see ARCHITECTURE.md);
+#: "io" runs network/disk jobs (model downloads) without blocking the GPU queue.
+LANES = ("gpu", "io")
 
 COMFY_WAIT_S = 120.0
 

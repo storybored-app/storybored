@@ -17,7 +17,10 @@ StoryBored scans two places for packs:
 Drop a folder into either location and it appears in the engine selector.
 If a pack references models your ComfyUI doesn't have, StoryBored **flags it as
 unavailable and lists the missing models** in Settings — it never hides the
-pack or crashes.
+pack or crashes. Missing files are enriched from the model catalog (see
+[MODELS.md](MODELS.md#the-catalog)); add a `DATA_DIR/workflows/catalog.json`
+entry per file if you want your pack's missing-model list to carry a download
+link, size and license too.
 
 ## graph.json: the API-format export
 

@@ -55,6 +55,9 @@ STORYBORED_PORT=8600
 DATA_DIR=./data                      # sqlite db + media + exports live here
 COMFYUI_URL=http://127.0.0.1:8188
 COMFY_LORAS_DIR=                     # optional: where to copy imported character LoRAs
+COMFY_MODELS_DIR=                    # optional: ComfyUI's models/ dir (shared filesystem
+                                     # only) — enables the in-app model downloader +
+                                     # big-model size warnings; expanduser'd
 COMFY_MODE_IMAGE_CMD=                # optional shell cmd before image jobs (profile switchers)
 COMFY_MODE_VIDEO_CMD=                # optional shell cmd before video jobs
 COMFY_FLUSH_CMD=                     # optional shell cmd between model-family switches
@@ -81,8 +84,10 @@ Unset optional vars = feature gracefully degrades (UI shows "not configured", ne
 - **take**: id, shot_id FK, kind in image|video, status in pending|done|failed,
   file_path nullable, thumb_path nullable, workflow_id, params_json, seed int,
   error nullable, created_at
-- **job**: id, type in image_gen|video_gen|animatic|dataset_prep|lora_train|lora_shootout,
-  status in queued|running|done|failed|cancelled, lane str ("gpu" for all v1 types),
+- **job**: id, type in image_gen|video_gen|animatic|dataset_prep|lora_train|lora_shootout
+  |model_download, status in queued|running|done|failed|cancelled, lane str ("gpu" for
+  every GPU type — the single-GPU-lane invariant; "io" for model_download, so
+  multi-GB fetches never block renders),
   payload_json, result_json nullable, error nullable, progress float=0,
   detail str="" (human-readable current step), created_at, started_at, finished_at
 - **setting**: key PK, value  (runtime-editable copies of LLM_* and workflow defaults;
@@ -167,6 +172,15 @@ Infra:
   a baked LoRA toggled off via `engine_loras` drops out of it. `missing_nodes`
   lists graph node classes (plus manifest `required_nodes` extras) the engine
   doesn't have — a missing custom node pack, distinct from missing model files.
+  Each missing file also appears in `missing_models_info: [{filename, folder,
+  downloadable, source?, page?, size_bytes?, license?, notes?}]`, enriched from the
+  model catalog (`workflows/catalog.json`, merged with `DATA_DIR/workflows/
+  catalog.json` — user entries win per filename): destination ComfyUI folder
+  (from the loader class), verified download URL + byte size + license when the
+  catalog has them, honest search guidance (`notes`, no URL) for
+  community-sourced files. When `comfy_models_dir` is set, each `models` slot row
+  additionally carries `large_files: [str]` — dropdown options whose on-disk size
+  exceeds 24 GB (the documented offload lesson; stat failures are silently skipped).
   Also per workflow: `default: bool` (per kind, from default_image/video_workflow), the pack's baked
   `loras: [{node, lora_name, strength, baked_strength, enabled, disabled_with_character}]`
   in chain order with user overrides applied, `added_loras: [{lora_name, strength,
@@ -175,7 +189,17 @@ Infra:
   dropdown enum for that loader input) with `models_modified: bool`, and capability
   flags `supports_loras` (pack declares a LoRA splice point) +
   `supports_frame_position` (video pack can anchor the still as the LAST frame)
+- `POST /api/workflows/{id}/download-models {filenames?: [str]}` →
+  `{job_ids, queued, skipped}` — enqueue one `model_download` job (lane "io") per
+  missing file that has a verified catalog source, streamed into
+  `{comfy_models_dir}/{folder}/{filename}` (`.part` staging, size verified when the
+  catalog knows it, /object_info cache flushed on completion). Files without a
+  verified source come back in `skipped`. Filenames already queued/running are not
+  double-queued. 409 when `comfy_models_dir` is unset, 404 unknown pack, 503 when
+  the engine is unreachable (can't compute what's missing).
 - `GET/PUT /api/settings` · `GET /api/health` → {comfy, llm, trainer, ffmpeg} statuses.
+  Overridable keys include `comfyui_url` (PUT flushes the /object_info cache) and
+  `comfy_models_dir` (enables in-app downloads + size warnings).
   JSON-valued settings, validated on PUT: `style_loras` (list of {lora_name, strength?,
   enabled?} layered into every image render), `engine_loras` (object: pack id → list
   of baked-node overrides {node, strength?, enabled?} and/or appended {lora_name,
