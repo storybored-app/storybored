@@ -9,7 +9,16 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+#: media paths embed project/shot/take ids, so an id must never be reused after
+#: a delete — a reused id would silently adopt any file left behind for its
+#: predecessor (external backups, pre-cleanup installs). AUTOINCREMENT only
+#: applies at CREATE TABLE time; databases created before this flag keep
+#: SQLite's default max+1 behavior.
+_NO_ID_REUSE = {"sqlite_autoincrement": True}
+
+
 class Project(SQLModel, table=True):
+    __table_args__ = _NO_ID_REUSE
     id: int | None = Field(default=None, primary_key=True)
     title: str
     description: str = ""
@@ -19,6 +28,7 @@ class Project(SQLModel, table=True):
 
 
 class Scene(SQLModel, table=True):
+    __table_args__ = _NO_ID_REUSE
     id: int | None = Field(default=None, primary_key=True)
     project_id: int = Field(foreign_key="project.id", index=True)
     idx: int = 0
@@ -28,6 +38,7 @@ class Scene(SQLModel, table=True):
 
 
 class Shot(SQLModel, table=True):
+    __table_args__ = _NO_ID_REUSE
     id: int | None = Field(default=None, primary_key=True)
     scene_id: int = Field(foreign_key="scene.id", index=True)
     idx: int = 0
@@ -62,6 +73,7 @@ class ShotCharacter(SQLModel, table=True):
 
 
 class Take(SQLModel, table=True):
+    __table_args__ = _NO_ID_REUSE
     id: int | None = Field(default=None, primary_key=True)
     shot_id: int = Field(foreign_key="shot.id", index=True)
     kind: str = "image"  # image | video

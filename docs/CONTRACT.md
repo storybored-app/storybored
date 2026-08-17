@@ -99,6 +99,11 @@ Unset optional vars = feature gracefully degrades (UI shows "not configured", ne
 Foreign keys are enforced (`PRAGMA foreign_keys=ON` on every sqlite connection):
 scene→project, shot→scene, take→shot and shotcharacter links cannot outlive
 their parents. Deletes remove children before parents.
+
+project/scene/shot/take use SQLite AUTOINCREMENT so ids are never reused after
+a delete — media paths embed these ids, and a reused id would silently adopt
+any file left behind for its predecessor (external backups, pre-cleanup
+installs). Applies to databases created after this change.
 - **setting**: key PK, value  (runtime-editable copies of LLM_* and workflow defaults;
   DB value wins over env when set)
 
