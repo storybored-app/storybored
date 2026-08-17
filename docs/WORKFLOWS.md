@@ -280,7 +280,7 @@ nodes so you never transcribe filenames by hand:
 ```bash
 python -m storybored validate-pack workflows/my-pack          # check
 python -m storybored validate-pack workflows/my-pack --write  # + fix required_models
-python -m storybored validate-pack workflows/*                # CI: all packs
+python -m storybored validate-pack workflows/*/               # CI: all packs
 ```
 
 It needs no ComfyUI and checks, per pack:
