@@ -1,7 +1,11 @@
-"""`python -m storybored` / `storybored` — run the server on STORYBORED_PORT."""
+"""`python -m storybored` / `storybored` — run the server on STORYBORED_PORT.
+
+Also hosts the offline pack linter: `python -m storybored validate-pack <dir>`
+(see engine/validate.py and docs/WORKFLOWS.md)."""
 
 import argparse
 import logging
+import sys
 
 import uvicorn
 
@@ -14,6 +18,12 @@ _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
 def main() -> None:
+    # subcommand dispatch before the server arg parser (which owns the flags)
+    if len(sys.argv) > 1 and sys.argv[1] == "validate-pack":
+        from storybored.engine.validate import main as validate_main
+
+        raise SystemExit(validate_main(sys.argv[2:]))
+
     parser = argparse.ArgumentParser(prog="storybored", description="StoryBored server")
     parser.add_argument(
         "--demo", action="store_true", help="create the demo project before serving"

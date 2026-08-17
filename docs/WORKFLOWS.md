@@ -268,7 +268,61 @@ checkpoint loader, node `"1"`. So:
 Put both files in `DATA_DIR/workflows/my-sdxl/`, refresh Settings → the pack
 shows up, availability-checked against your ComfyUI. That's the whole process.
 
+## Validating a pack (`validate-pack`)
+
+Don't hand-check the list below — the repo ships an offline linter that does
+it, including deriving `required_models` straight from your graph's loader
+nodes so you never transcribe filenames by hand:
+
+```bash
+python -m storybored validate-pack workflows/my-pack          # check
+python -m storybored validate-pack workflows/my-pack --write  # + fix required_models
+python -m storybored validate-pack workflows/*                # CI: all packs
+```
+
+It needs no ComfyUI and checks, per pack:
+
+- the manifest parses and has a sane shape (`id` matches the folder name,
+  `kind` is image/video, parameter types are known, no duplicate keys);
+- the graph is really **API format**, and every node id the manifest references
+  (`parameters`, `output_node`, `model_slots`, `character_injection`,
+  `lora_injection`, `frame_conditioning`) exists in it;
+- `required_models` matches what the graph's loader nodes actually load
+  (`UNETLoader`, `CLIPLoader`, `DualCLIPLoader`, `VAELoader`, `LoraLoader`,
+  `LoraLoaderModelOnly`, `CheckpointLoaderSimple`). Any mismatch is reported as
+  `DRIFT`; `--write` regenerates the manifest section from the graph. Files
+  loaded by custom node classes can't be derived offline — a `WARN` points at
+  likely candidates and you list those by hand.
+
+Exit codes: `0` all packs valid, `1` validation errors or drift (CI should
+fail), `2` usage/IO problems.
+
+## Custom nodes: what availability checks, and what the shipped packs need
+
+Availability isn't only about model files. StoryBored also checks **every node
+class your graph uses** against the engine's `/object_info`; classes the
+engine doesn't know are listed as *missing custom nodes* in Settings, so users
+learn they need a node pack (or a newer ComfyUI), not a download. The optional
+manifest `required_nodes` list adds classes beyond those the graph references.
+
+The shipped packs assume:
+
+- `PathchSageAttentionKJ` (the typo is the real class name) — from the
+  **ComfyUI-KJNodes** custom node pack (registry name `comfyui-kjnodes`),
+  which additionally requires the `sageattention` Python library installed in
+  ComfyUI's environment. Used by `krea2-basic` and `krea2-realism`.
+- `MiniMaxH3MemoryEfficientSageAttentionPatch` — also from **ComfyUI-KJNodes**
+  (experimental; needs a recent `sageattention`). Used by `minimax-h3-i2v`.
+- `MiniMaxH3ImageToVideo` — **ComfyUI core**, but only in recent builds
+  (ComfyUI ≥ 0.30.0 per the official MiniMax H3 example page). An older
+  ComfyUI reports it missing exactly like an uninstalled node pack.
+- `CreateVideo`, `SaveVideo`, `VAEDecodeAudio` — ComfyUI core video/audio
+  nodes (present since the video-type support added in spring 2025).
+
 ## Checklist before sharing a pack
+
+`python -m storybored validate-pack <dir>` checks everything here except the
+last item automatically:
 
 - [ ] `graph.json` is **API format** (top-level keys are node ids, not a
       `nodes` array).
@@ -276,9 +330,9 @@ shows up, availability-checked against your ComfyUI. That's the whole process.
       `input` exists in the graph.
 - [ ] `output_node` is the save node; leave its `filename_prefix` as-is
       (StoryBored overwrites it per take).
-- [ ] `required_models` covers every model file the graph loads — this is what
-      gives users a useful "missing: …" message instead of a cryptic ComfyUI
-      error.
+- [ ] `required_models` covers every model file the graph loads (run
+      `validate-pack --write` to generate it) — this is what gives users a
+      useful "missing: …" message instead of a cryptic ComfyUI error.
 - [ ] `character_injection.after_node` points at the *last* LoRA in your chain —
       it's the seam for characters, style LoRAs, and user-appended LoRAs alike
       (see "Runtime LoRA layers" above).
