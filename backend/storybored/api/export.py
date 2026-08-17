@@ -44,11 +44,16 @@ def _require_renderable(session: Session, shot: Shot) -> None:
         raise HTTPException(status_code=409, detail="picked take is not a finished still")
 
 
-def _enqueue_video(request: Request, shot: Shot, workflow_id: str | None = None):
+def _enqueue_video(
+    request: Request,
+    shot: Shot,
+    workflow_id: str | None = None,
+    project_id: int | None = None,
+):
     payload: dict = {"shot_id": shot.id}
     if workflow_id:
         payload["workflow_id"] = workflow_id
-    return request.app.state.runner.enqueue("video_gen", payload)
+    return request.app.state.runner.enqueue("video_gen", payload, project_id=project_id)
 
 
 @router.post("/shots/{shot_id}/render-video")
@@ -70,7 +75,13 @@ def render_video(
         session.commit()
         session.refresh(shot)
         request.app.state.bus.publish("shot", jsonable_encoder(shot))
-    job = _enqueue_video(request, shot, body.workflow_id)
+    scene = session.get(Scene, shot.scene_id)
+    job = _enqueue_video(
+        request,
+        shot,
+        body.workflow_id,
+        project_id=scene.project_id if scene is not None else None,
+    )
     return {"job_id": job.id}
 
 
@@ -88,7 +99,9 @@ def render_videos(
         .where(Shot.video_take_id == None)  # noqa: E711 - SQL NULL check
         .order_by(Scene.idx, Shot.idx)  # type: ignore[arg-type]
     ).all()
-    job_ids = [_enqueue_video(request, shot).id for shot in shots]
+    job_ids = [
+        _enqueue_video(request, shot, project_id=project_id).id for shot in shots
+    ]
     return {"job_ids": job_ids, "queued": len(job_ids)}
 
 
@@ -115,7 +128,7 @@ def export_animatic(
         payload["scene_id"] = body.scene_id
     if body.title_cards:
         payload["title_cards"] = True
-    job = request.app.state.runner.enqueue("animatic", payload)
+    job = request.app.state.runner.enqueue("animatic", payload, project_id=project_id)
     return {"job_id": job.id}
 
 

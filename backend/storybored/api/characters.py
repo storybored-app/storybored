@@ -209,6 +209,9 @@ def delete_character(
         select(ShotCharacter).where(ShotCharacter.character_id == character_id)
     ):
         session.delete(link)
+    # no ORM relationships are mapped, so flush to guarantee the link rows go
+    # before the character row (FKs are enforced)
+    session.flush()
     _publish(request, char, deleted=True)
     session.delete(char)
     session.commit()

@@ -3,6 +3,7 @@
 from collections.abc import Iterator
 
 from fastapi import Request
+from sqlalchemy import event
 from sqlmodel import Session, SQLModel, create_engine
 
 from storybored.config import Settings
@@ -11,13 +12,24 @@ from storybored.config import Settings
 def create_db_engine(settings: Settings):
     settings.data_path.mkdir(parents=True, exist_ok=True)
     url = f"sqlite:///{settings.db_path}"
-    return create_engine(url, connect_args={"check_same_thread": False})
+    engine = create_engine(url, connect_args={"check_same_thread": False})
+
+    # SQLite ships with foreign keys OFF per connection; without this, child
+    # rows (scenes/shots/takes/links) can silently point at deleted parents.
+    @event.listens_for(engine, "connect")
+    def _enable_foreign_keys(dbapi_connection, _record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    return engine
 
 
 #: columns added after v1 — create_all() never alters existing tables, so new
 #: columns get a one-shot ADD COLUMN guard here (SQLite has no real migrations)
 _ADDED_COLUMNS: dict[str, dict[str, str]] = {
     "shot": {"frame_position": "VARCHAR NOT NULL DEFAULT 'first'"},
+    "job": {"project_id": "INTEGER"},
 }
 
 

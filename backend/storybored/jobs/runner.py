@@ -113,12 +113,21 @@ class JobRunner:
 
     # -- public API -----------------------------------------------------------
 
-    def enqueue(self, job_type: str, payload: dict | None = None, lane: str = "gpu") -> Job:
-        """Insert a queued job and wake the worker. Thread-safe."""
+    def enqueue(
+        self,
+        job_type: str,
+        payload: dict | None = None,
+        lane: str = "gpu",
+        project_id: int | None = None,
+    ) -> Job:
+        """Insert a queued job and wake the worker. Thread-safe. Pass
+        ``project_id`` whenever the job belongs to a project so lifecycle code
+        (delete, export) can find it without scanning payload JSON."""
         job = Job(
             type=job_type,
             status="queued",
             lane=lane,
+            project_id=project_id,
             payload_json=json.dumps(payload or {}),
         )
         with self.session_factory() as session:

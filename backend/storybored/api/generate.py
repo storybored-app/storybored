@@ -11,6 +11,7 @@ from storybored.api.shots import get_shot_or_404
 from storybored.db import get_session
 from storybored.engine import registry
 from storybored.engine.comfy_client import ComfyClient
+from storybored.models import Scene
 
 router = APIRouter(prefix="/api", tags=["generate"])
 
@@ -69,6 +70,7 @@ async def generate_shot(
     session.refresh(shot)
     request.app.state.bus.publish("shot", jsonable_encoder(shot))
 
+    scene = session.get(Scene, shot.scene_id)
     job = request.app.state.runner.enqueue(
         "image_gen",
         {
@@ -77,5 +79,6 @@ async def generate_shot(
             "n_takes": body.n_takes,
             "params": body.params,
         },
+        project_id=scene.project_id if scene is not None else None,
     )
     return {"job_id": job.id}

@@ -80,6 +80,10 @@ class Job(SQLModel, table=True):
     type: str  # image_gen | video_gen | animatic | dataset_prep | lora_train | lora_shootout
     status: str = "queued"  # queued | running | done | failed | cancelled
     lane: str = "gpu"
+    #: project this job belongs to, when one is known at enqueue time (character
+    #: and training jobs are project-less). Soft reference, no FK: job rows are
+    #: history and must never block or be blocked by project writes.
+    project_id: int | None = None
     payload_json: str = "{}"
     result_json: str | None = None
     error: str | None = None

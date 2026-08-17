@@ -83,8 +83,15 @@ Unset optional vars = feature gracefully degrades (UI shows "not configured", ne
   error nullable, created_at
 - **job**: id, type in image_gen|video_gen|animatic|dataset_prep|lora_train|lora_shootout,
   status in queued|running|done|failed|cancelled, lane str ("gpu" for all v1 types),
-  payload_json, result_json nullable, error nullable, progress float=0,
-  detail str="" (human-readable current step), created_at, started_at, finished_at
+  project_id nullable (set at enqueue whenever the job belongs to a project —
+  image_gen/video_gen/animatic/project_export; character + training jobs stay null;
+  soft reference, no FK), payload_json, result_json nullable, error nullable,
+  progress float=0, detail str="" (human-readable current step), created_at,
+  started_at, finished_at
+
+Foreign keys are enforced (`PRAGMA foreign_keys=ON` on every sqlite connection):
+scene→project, shot→scene, take→shot and shotcharacter links cannot outlive
+their parents. Deletes remove children before parents.
 - **setting**: key PK, value  (runtime-editable copies of LLM_* and workflow defaults;
   DB value wins over env when set)
 
