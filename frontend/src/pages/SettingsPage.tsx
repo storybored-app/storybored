@@ -6,14 +6,17 @@ import {
   ChevronRight,
   Download,
   ExternalLink,
+  FileJson,
   FlaskConical,
   Plus,
   RefreshCw,
   Save,
+  Trash2,
   Wand2,
   X,
 } from "lucide-react";
-import { apiGet, apiPost, apiPut } from "../lib/api";
+import { apiDelete, apiGet, apiPost, apiPut } from "../lib/api";
+import { ImportWorkflowWizard } from "../components/ImportWorkflowWizard";
 import { formatBytes } from "../lib/format";
 import {
   healthDetail,
@@ -167,6 +170,7 @@ function WorkflowRow({
   onSaveLoras,
   onSaveModels,
   onDownload,
+  onRemove,
 }: {
   wf: WorkflowManifest;
   availableLoras: string[] | undefined;
@@ -176,6 +180,7 @@ function WorkflowRow({
   onSaveLoras: (packId: string, entries: EngineLoraEntry[]) => void;
   onSaveModels: (packId: string, slots: Record<string, string>) => void;
   onDownload: (packId: string, filenames?: string[]) => void;
+  onRemove: (wf: WorkflowManifest) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [stack, setStack] = useState<EngineLoraRow[]>(wf.loras ?? []);
@@ -240,6 +245,7 @@ function WorkflowRow({
         </div>
         {wf.default && <Badge tone="amber">default</Badge>}
         {(wf.loras_modified || wf.models_modified) && <Badge tone="fog">customized</Badge>}
+        {wf.removable && <Badge tone="fog">imported</Badge>}
         <Badge tone="fog">{wf.kind}</Badge>
         {available ? (
           <Badge tone="green">ready</Badge>
@@ -549,6 +555,19 @@ function WorkflowRow({
               </Button>
             </div>
           )}
+
+          {wf.removable && (
+            <div className="mt-3 flex justify-end border-t border-line/50 pt-3">
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => onRemove(wf)}
+                title="Delete this imported engine's files — shots already rendered with it keep their images"
+              >
+                <Trash2 size={13} /> Remove this engine
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </li>
@@ -594,6 +613,7 @@ export function SettingsPage() {
   const [styleLoras, setStyleLoras] = useState<StyleLora[]>([]);
   const [newStyleLora, setNewStyleLora] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const keySet = settings?.effective?.llm_api_key_set === true;
 
@@ -714,6 +734,17 @@ export function SettingsPage() {
         toast("Nothing to download — already fetching or nothing missing.", "success");
       }
       qc.invalidateQueries({ queryKey: ["jobs"] });
+    },
+    onError: (e: Error) => toast(e.message, "error"),
+  });
+
+  // Delete a user-imported pack's folder (shipped packs have no Remove button
+  // and the server refuses them anyway).
+  const removeWorkflow = useMutation({
+    mutationFn: (wf: WorkflowManifest) => apiDelete(`/api/workflows/${wf.id}`),
+    onSuccess: (_data, wf) => {
+      toast(`${wf.name} removed.`, "success");
+      qc.invalidateQueries({ queryKey: ["workflows"] });
     },
     onError: (e: Error) => toast(e.message, "error"),
   });
@@ -1108,6 +1139,13 @@ export function SettingsPage() {
           </div>
           <Button
             size="sm"
+            onClick={() => setImportOpen(true)}
+            title="Turn a ComfyUI workflow export into a new engine"
+          >
+            <FileJson size={13} /> Import workflow
+          </Button>
+          <Button
+            size="sm"
             onClick={() => refreshWorkflows.mutate()}
             busy={refreshWorkflows.isPending}
             title="Re-check which models and nodes the engine has right now"
@@ -1140,11 +1178,18 @@ export function SettingsPage() {
                 onDownload={(packId, filenames) =>
                   downloadModels.mutate({ packId, filenames })
                 }
+                onRemove={(w) => {
+                  if (window.confirm(`Remove the "${w.name}" engine?`)) {
+                    removeWorkflow.mutate(w);
+                  }
+                }}
               />
             ))}
           </ul>
         )}
       </section>
+
+      {importOpen && <ImportWorkflowWizard onClose={() => setImportOpen(false)} />}
     </div>
   );
 }

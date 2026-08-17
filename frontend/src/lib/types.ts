@@ -190,6 +190,70 @@ export interface WorkflowManifest {
   models?: EngineModelSlot[];
   /** True when the engine_models setting customizes this pack. */
   models_modified?: boolean;
+  /** True for user-imported packs (DATA_DIR) — the only ones removable. */
+  removable?: boolean;
+}
+
+/** One detected node candidate for a wizard role (POST /api/workflows/analyze). */
+export interface AnalyzeCandidate {
+  node: string;
+  input?: string;
+  class_type?: string;
+  /** "positive" | "negative" | null — prompt candidates only. */
+  role?: string | null;
+  /** First characters of the baked text — prompt candidates only. */
+  preview?: string;
+  value?: unknown;
+  width?: number;
+  height?: number;
+  lora_name?: string | null;
+}
+
+/** The analyzer's pick for a role (node id, sometimes input) + confidence. */
+export interface AnalyzeSuggestion {
+  node?: string;
+  input?: string;
+  after_node?: string;
+  /** "character_injection" | "lora_injection" — seam suggestions only. */
+  field?: string;
+  class_type?: string;
+  confidence?: string;
+}
+
+export interface AnalyzeRole {
+  candidates: AnalyzeCandidate[];
+  suggested: AnalyzeSuggestion | null;
+}
+
+/** POST /api/workflows/analyze — proposed manifest draft for a graph. */
+export interface WorkflowAnalysis {
+  kind: "image" | "video" | string;
+  node_count: number;
+  /** prompt · seed · size · output · image · length · seam */
+  roles: Record<string, AnalyzeRole>;
+  model_slots: {
+    key: string;
+    node: string;
+    input: string;
+    class_type: string;
+    value: string;
+  }[];
+  frame_conditioning: { node: string; first: string; last: string } | null;
+  required_models: Record<string, string[]>;
+  warnings: string[];
+}
+
+/** POST /api/workflows/import — the created pack's availability. */
+export interface ImportedWorkflowInfo {
+  id: string;
+  name: string;
+  kind: string;
+  available: boolean;
+  missing_models: string[];
+  missing_models_info?: MissingModelInfo[];
+  missing_nodes: string[];
+  error?: string | null;
+  removable: boolean;
 }
 
 export type HealthPart =
