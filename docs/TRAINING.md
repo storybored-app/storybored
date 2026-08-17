@@ -100,6 +100,17 @@ Characters → New character → **Train from photos**.
    character flips to **trained**, wired to the final checkpoint at strength
    1.0 — adjust strength on the character card if the identity is too strong
    or too weak in generations.
+5. **Shootout (optional, recommended)** — training saves a checkpoint every
+   250 steps, and the last one isn't always the best (overtraining is real).
+   The panel that appears after training — also reachable later via the
+   character's edit dialog → **Shootout** — renders the same test shots with
+   each selected checkpoint × strength, builds a labeled contact sheet, and
+   scores every combo (face likeness against your training photos weighs 60%,
+   prompt match and artifact-cleanliness 20% each). Ranked results come with a
+   one-click **Use this** per row; the contact sheet opens full-size so you can
+   overrule the judges with your eyes. Defaults test steps 1500/2000/2500 and
+   final at strengths 0.7 and 1.0 (~10–20 min on the GPU); clear the
+   checkpoints field to test every saved version.
 
 Time expectations: prep is minutes; training is **hours** (roughly 2.5–4 h for
 a full run on a modern 24 GB-class GPU — start it before bed, not before a

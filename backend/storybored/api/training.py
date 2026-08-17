@@ -6,6 +6,11 @@ POST /api/characters/wizard      — multipart images and/or image URLs →
 GET  /api/training/{character_id} — prep report, sample paths, job states
 POST /api/training/{character_id}/train — start the lora_train job (explicit
                                    user step after reviewing the prep report)
+POST /api/training/{character_id}/shootout — start the checkpoint shootout
+                                   (compare.py + score.py) for a trained character
+GET  /api/training/{character_id}/shootout/grid — the comparison contact sheet
+POST /api/training/{character_id}/shootout/apply — point the character at a
+                                   specific checkpoint file + strength
 
 Every endpoint first runs restart recovery so a train that survived a backend
 restart is re-attached before we report or mutate anything.
@@ -17,6 +22,8 @@ import re
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from storybored.config import Settings
@@ -25,6 +32,7 @@ from storybored.models import Character, Job
 from storybored.training import fetch
 from storybored.training.lora_factory import (
     TrainerNotConfigured,
+    checkpoint_filenames,
     recover_orphan_trains,
     resolve_trainer_dir,
 )
@@ -225,6 +233,7 @@ def training_status(
 
     prep_job = _latest_job(session, "dataset_prep", character_id)
     train_job = _latest_job(session, "lora_train", character_id)
+    shootout_job = _latest_job(session, "lora_shootout", character_id)
 
     report_md = ""
     if prep_job is not None and prep_job.status == "done" and prep_job.result_json:
@@ -248,6 +257,7 @@ def training_status(
         "character": jsonable_encoder(character),
         "prep_job": jsonable_encoder(prep_job) if prep_job else None,
         "train_job": jsonable_encoder(train_job) if train_job else None,
+        "shootout_job": jsonable_encoder(shootout_job) if shootout_job else None,
         "report_md": report_md,
         "samples": samples,
     }
@@ -283,3 +293,139 @@ def start_training(
         {"character_id": character_id, "handle": character.handle, "job_name": job_name},
     )
     return {"job_id": job.id}
+
+
+# -- checkpoint shootout ------------------------------------------------------
+
+
+class ShootoutRequest(BaseModel):
+    strengths: str = "0.7,1.0"
+    ckpts: str = ""  # comma list of step numbers and/or "final"; empty = all
+    seeds: int = 1
+
+
+class ApplyCheckpointRequest(BaseModel):
+    checkpoint: str  # exact filename in output/<job>/, e.g. hero-v1_000002500.safetensors
+    strength: float = 1.0
+
+
+def _shootout_job_name(session: Session, character: Character) -> str:
+    """Same resolution as start_training: trust the train job's payload first."""
+    train_job = _latest_job(session, "lora_train", character.id)
+    if train_job is not None:
+        try:
+            name = json.loads(train_job.payload_json or "{}").get("job_name")
+            if name:
+                return name
+        except json.JSONDecodeError:
+            pass
+    return _job_name(character.handle)
+
+
+@router.post("/training/{character_id}/shootout")
+def start_shootout(
+    character_id: int,
+    body: ShootoutRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    settings: Settings = request.app.state.settings
+    _recover(request)
+    factory = _trainer_or_503(session, settings)
+    character = _get_character_or_404(session, character_id)
+
+    if character.status != "trained":
+        raise HTTPException(
+            status_code=409, detail="finish training before running a shootout"
+        )
+    running = _latest_job(session, "lora_shootout", character_id)
+    if running is not None and running.status in ("queued", "running"):
+        raise HTTPException(status_code=409, detail="a shootout is already queued or running")
+
+    # friendly validation — these become argv for compare.py
+    try:
+        strengths = [float(s) for s in body.strengths.split(",") if s.strip()]
+    except ValueError:
+        strengths = []
+    if not strengths:
+        raise HTTPException(
+            status_code=400, detail='strengths must be a comma list of numbers, e.g. "0.7,1.0"'
+        )
+    tokens = [t.strip() for t in body.ckpts.split(",") if t.strip()]
+    if any(not (t.isdigit() or t == "final") for t in tokens):
+        raise HTTPException(
+            status_code=400,
+            detail='checkpoints must be step numbers and/or "final", e.g. "2000,2500,final"',
+        )
+    if not 1 <= body.seeds <= 4:
+        raise HTTPException(status_code=400, detail="seeds must be between 1 and 4")
+
+    job_name = _shootout_job_name(session, character)
+    if not checkpoint_filenames(factory, job_name):
+        raise HTTPException(
+            status_code=409, detail=f"no saved checkpoints found for '{job_name}'"
+        )
+
+    job = request.app.state.runner.enqueue(
+        "lora_shootout",
+        {
+            "character_id": character_id,
+            "handle": character.handle,
+            "job_name": job_name,
+            "strengths": body.strengths.strip(),
+            "ckpts": ",".join(tokens),
+            "seeds": body.seeds,
+        },
+    )
+    return {"job_id": job.id}
+
+
+@router.get("/training/{character_id}/shootout/grid")
+def shootout_grid(
+    character_id: int, request: Request, session: Session = Depends(get_session)
+):
+    settings: Settings = request.app.state.settings
+    factory = _trainer_or_503(session, settings)
+    character = _get_character_or_404(session, character_id)
+    grid = (
+        factory
+        / "output"
+        / _shootout_job_name(session, character)
+        / "comparison"
+        / "grid.jpg"
+    )
+    if not grid.is_file():
+        raise HTTPException(status_code=404, detail="no comparison grid yet — run a shootout")
+    return FileResponse(grid, media_type="image/jpeg")
+
+
+@router.post("/training/{character_id}/shootout/apply")
+def apply_checkpoint(
+    character_id: int,
+    body: ApplyCheckpointRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    settings: Settings = request.app.state.settings
+    factory = _trainer_or_503(session, settings)
+    character = _get_character_or_404(session, character_id)
+    job_name = _shootout_job_name(session, character)
+
+    # the filename fully determines the path — accept only this job's checkpoints
+    if not re.fullmatch(re.escape(job_name) + r"(_\d+)?\.safetensors", body.checkpoint):
+        raise HTTPException(
+            status_code=400, detail=f"not a checkpoint file of '{job_name}'"
+        )
+    if not (factory / "output" / job_name / body.checkpoint).is_file():
+        raise HTTPException(status_code=404, detail=f"checkpoint not found: {body.checkpoint}")
+    if not 0 < body.strength <= 2:
+        raise HTTPException(status_code=400, detail="strength must be in (0, 2]")
+
+    character.lora_name = f"lorafactory_{job_name}/{body.checkpoint}"
+    character.lora_strength = body.strength
+    session.add(character)
+    session.commit()
+    session.refresh(character)
+    payload = jsonable_encoder(character)
+    request.app.state.bus.publish("character", payload)
+    return payload

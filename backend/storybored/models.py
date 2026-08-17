@@ -77,7 +77,7 @@ class Take(SQLModel, table=True):
 
 class Job(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    type: str  # image_gen | video_gen | animatic | dataset_prep | lora_train
+    type: str  # image_gen | video_gen | animatic | dataset_prep | lora_train | lora_shootout
     status: str = "queued"  # queued | running | done | failed | cancelled
     lane: str = "gpu"
     payload_json: str = "{}"

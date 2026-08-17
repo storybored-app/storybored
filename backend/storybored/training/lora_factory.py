@@ -10,6 +10,12 @@ dataset_prep — `bash prep.sh <staging_dir> --name <job> --trigger <t>
 streams into job.detail; on success `jobs/<job>/report.md` is read into
 result_json for the wizard's review screen.
 
+lora_shootout — after a finished train: `compare.py <job>` renders the saved
+checkpoints through the engine (grid.jpg contact sheet), then `score.py <job>`
+ranks checkpoint+strength combos (facenet likeness + VLM judge → scores.md).
+The ranked table is parsed into result_json so the wizard can offer one-click
+"use this checkpoint". Both scripts run under the factory's own venv python.
+
 lora_train — `bash train.sh <job>` started with start_new_session=True and
 stdout redirected to a log file, plus a pidfile under DATA_DIR, so a backend
 restart does NOT kill a 3-hour train: on recovery (see
@@ -25,6 +31,7 @@ import logging
 import os
 import re
 import signal
+import sys
 from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
@@ -228,6 +235,157 @@ async def dataset_prep(job: Job, ctx) -> dict:
         "staging_dir": staging,
         "report_path": str(report_path),
         "report_md": report_md,
+    }
+
+
+# -- lora_shootout ------------------------------------------------------------
+
+# compare.py progress lines look like "[compare] [3/24] step 2500 @ 1.0 p0 seed0"
+COMPARE_PROGRESS_RE = re.compile(r"\[(\d+)/(\d+)\]")
+
+# scores.md table rows: rank, checkpoint stem, strength, TOTAL, likeness,
+# prompt, clean, no-face/of (all whitespace-separated fixed-width columns)
+SCORE_LINE_RE = re.compile(
+    r"^\s*(\d+)\s+(\S+?)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)/(\d+)\s*$"
+)
+
+
+def factory_python(factory: Path) -> str:
+    """The factory's own venv python (compare/score deps live there)."""
+    venv = factory / ".venv" / "bin" / "python"
+    return str(venv) if venv.exists() else sys.executable
+
+
+def checkpoint_filenames(factory: Path, job_name: str) -> list[str]:
+    """Saved checkpoint files for a job, step order, unsuffixed final last."""
+    out_dir = factory / "output" / job_name
+    if not out_dir.is_dir():
+        return []
+    stem_re = re.compile(re.escape(job_name) + r"_(\d+)\.safetensors$")
+    stepped: list[tuple[int, str]] = []
+    finals: list[str] = []
+    for path in sorted(out_dir.glob(f"{job_name}*.safetensors")):
+        m = stem_re.search(path.name)
+        if m:
+            stepped.append((int(m.group(1)), path.name))
+        elif path.name == f"{job_name}.safetensors":
+            finals.append(path.name)
+    return [name for _, name in sorted(stepped)] + finals
+
+
+def checkpoint_label(stem: str, job_name: str) -> str:
+    m = re.match(re.escape(job_name) + r"_(\d+)$", stem)
+    return f"step {int(m.group(1))}" if m else "final"
+
+
+def parse_scores(scores_md: str, job_name: str) -> list[dict]:
+    """Parse score.py's ranked table into rows the UI can act on."""
+    rows: list[dict] = []
+    for line in scores_md.splitlines():
+        m = SCORE_LINE_RE.match(line)
+        if not m:
+            continue
+        stem = m.group(2)
+        rows.append(
+            {
+                "rank": int(m.group(1)),
+                "checkpoint": f"{stem}.safetensors",
+                "label": checkpoint_label(stem, job_name),
+                "strength": float(m.group(3)),
+                "total": float(m.group(4)),
+                "likeness": float(m.group(5)),
+                "prompt_match": float(m.group(6)),
+                "clean": float(m.group(7)),
+                "no_face": int(m.group(8)),
+                "cells": int(m.group(9)),
+            }
+        )
+    rows.sort(key=lambda r: r["rank"])
+    return rows
+
+
+async def _stream_subprocess(
+    ctx,
+    cmd: list[str],
+    cwd: Path,
+    tail: deque[str],
+    progress_lo: float,
+    progress_hi: float,
+) -> int:
+    """Run cmd streaming stdout into job.detail; compare-style [n/total] lines
+    map onto the [progress_lo, progress_hi] band. Kills the group on cancel."""
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        cwd=cwd,
+        env={**os.environ, "HF_HUB_OFFLINE": "1"},
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        start_new_session=True,
+    )
+    try:
+        assert proc.stdout is not None
+        while True:
+            line = await proc.stdout.readline()
+            if not line:
+                break
+            text = line.decode(errors="replace").rstrip()
+            if not text:
+                continue
+            tail.append(text)
+            progress = None
+            m = COMPARE_PROGRESS_RE.search(text)
+            if m and int(m.group(2)) > 0:
+                frac = min(int(m.group(1)) / int(m.group(2)), 1.0)
+                progress = progress_lo + (progress_hi - progress_lo) * frac
+            ctx.update_progress(progress, "\n".join(tail))
+            ctx.raise_if_cancelled()
+        return await proc.wait()
+    except (JobCancelled, asyncio.CancelledError):
+        _terminate_group(proc.pid)
+        raise
+
+
+@register("lora_shootout")
+async def lora_shootout(job: Job, ctx) -> dict:
+    payload = json.loads(job.payload_json or "{}")
+    job_name = payload["job_name"]
+    with ctx.session_factory() as session:
+        factory = resolve_trainer_dir(session, ctx.settings)
+    python = factory_python(factory)
+
+    compare_cmd = [python, "compare.py", job_name]
+    strengths = (payload.get("strengths") or "1.0").strip()
+    compare_cmd += ["--strengths", strengths]
+    ckpts = (payload.get("ckpts") or "").strip()
+    if ckpts:
+        compare_cmd += ["--ckpts", ckpts]
+    seeds = int(payload.get("seeds") or 1)
+    if seeds > 1:
+        compare_cmd += ["--seeds", str(seeds)]
+
+    tail: deque[str] = deque(maxlen=TAIL_LINES)
+    ctx.update_progress(0.02, f"rendering checkpoint test shots for '{job_name}'")
+    code = await _stream_subprocess(ctx, compare_cmd, factory, tail, 0.02, 0.7)
+    if code != 0:
+        raise RuntimeError(f"compare.py exited with code {code}\n" + "\n".join(tail))
+
+    ctx.update_progress(0.72, "scoring renders (likeness + prompt judges)…")
+    code = await _stream_subprocess(
+        ctx, [python, "score.py", job_name], factory, tail, 0.72, 0.97
+    )
+    if code != 0:
+        raise RuntimeError(f"score.py exited with code {code}\n" + "\n".join(tail))
+
+    comp = factory / "output" / job_name / "comparison"
+    scores_path = comp / "scores.md"
+    scores_md = scores_path.read_text(errors="replace") if scores_path.is_file() else ""
+    results = parse_scores(scores_md, job_name)
+    ctx.update_progress(0.99, "\n".join([*tail, "shootout finished — pick a winner"]))
+    return {
+        "job_name": job_name,
+        "results": results,
+        "scores_md": scores_md,
+        "grid": (comp / "grid.jpg").is_file(),
     }
 
 

@@ -28,6 +28,8 @@ export function jobTypeLabel(t: Job["type"]): string {
       return "Preparing photos";
     case "lora_train":
       return "Training character";
+    case "lora_shootout":
+      return "Comparing checkpoints";
     default:
       return t;
   }

@@ -81,7 +81,7 @@ Unset optional vars = feature gracefully degrades (UI shows "not configured", ne
 - **take**: id, shot_id FK, kind in image|video, status in pending|done|failed,
   file_path nullable, thumb_path nullable, workflow_id, params_json, seed int,
   error nullable, created_at
-- **job**: id, type in image_gen|video_gen|animatic|dataset_prep|lora_train,
+- **job**: id, type in image_gen|video_gen|animatic|dataset_prep|lora_train|lora_shootout,
   status in queued|running|done|failed|cancelled, lane str ("gpu" for all v1 types),
   payload_json, result_json nullable, error nullable, progress float=0,
   detail str="" (human-readable current step), created_at, started_at, finished_at
@@ -125,6 +125,14 @@ Characters:
   `POST /api/training/{character_id}/train` → lora_train job (explicit user step after
   reviewing the prep report). On train completion: character.status=trained,
   lora_name=final checkpoint, strength=1.0 (user-adjustable).
+- Checkpoint shootout (optional post-train quality pass, character must be trained):
+  `POST /api/training/{character_id}/shootout {strengths?, ckpts?, seeds?}` → {job_id}
+  (409 while one is queued/running or when no checkpoints exist; 400 on malformed knobs).
+  `GET /api/training/{character_id}/shootout/grid` → the comparison contact sheet (jpeg).
+  `POST /api/training/{character_id}/shootout/apply {checkpoint, strength}` → repoints
+  character.lora_name at `lorafactory_<job>/<checkpoint>` + sets strength (filename must
+  be one of the job's own checkpoint files; 0 < strength ≤ 2). `GET /api/training/{id}`
+  also returns `shootout_job`.
 
 LLM / PromptSmith (results land in visible editor fields; nothing persisted here):
 - `POST /api/shots/{id}/enhance {description?, shot_type?, camera?}` →
@@ -275,6 +283,15 @@ DATA_DIR staging, then:
   Progress: parse step counts from stdout lines when present (`progress = step/3000`).
   On success: `lora_name = "lorafactory_<job>/<job>.safetensors"` (final checkpoint),
   character.status=trained + `character` SSE event.
+- lora_shootout job: `{factory}/.venv/bin/python compare.py <job> --strengths …
+  [--ckpts …] [--seeds N]` (renders every requested checkpoint through the image engine
+  → `output/<job>/comparison/grid.jpg`; `[n/total]` stdout lines drive progress), then
+  `score.py <job>` (facenet likeness vs the training set + local VLM judge →
+  `comparison/scores.md`). The ranked table is parsed into result_json
+  `{results: [{rank, checkpoint, label, strength, total, likeness, prompt_match, clean,
+  no_face, cells}], scores_md, grid}` so the wizard offers one-click apply. Runs in the
+  "image" ComfyUI family (runner mode-switches first); user cancel kills the process
+  group. The final checkpoint stays wired until the user applies a different one.
 
 ## Frontend (the product — invest here)
 

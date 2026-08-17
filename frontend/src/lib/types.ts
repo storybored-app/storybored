@@ -10,7 +10,8 @@ export type JobType =
   | "video_gen"
   | "animatic"
   | "dataset_prep"
-  | "lora_train";
+  | "lora_train"
+  | "lora_shootout";
 export type CharacterStatus = "ready" | "dataset" | "training" | "trained";
 
 export interface Project {
@@ -216,9 +217,26 @@ export interface TrainingInfo {
   sample_paths?: string[];
   prep_job?: Job | null;
   train_job?: Job | null;
+  shootout_job?: Job | null;
   jobs?: Job[];
   character?: Character;
   [k: string]: unknown;
+}
+
+/** One ranked row of a checkpoint shootout (lora_shootout result_json.results). */
+export interface ShootoutRow {
+  rank: number;
+  /** exact file to load, e.g. "hero-v1_000002500.safetensors" */
+  checkpoint: string;
+  /** "step 2500" | "final" */
+  label: string;
+  strength: number;
+  total: number;
+  likeness: number;
+  prompt_match: number;
+  clean: number;
+  no_face: number;
+  cells: number;
 }
 
 export interface ExportEntry {

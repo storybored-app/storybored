@@ -9,6 +9,7 @@ import {
   ImagePlus,
   Plus,
   Trash2,
+  Trophy,
   Upload,
   Users,
   X,
@@ -21,7 +22,7 @@ import {
   apiPost,
   mediaUrl,
 } from "../lib/api";
-import type { Character, Job, TrainingInfo } from "../lib/types";
+import type { Character, Job, ShootoutRow, TrainingInfo } from "../lib/types";
 import { handleFromName, isValidHandle, suggestTrigger } from "../lib/format";
 import { EmptyState, ErrorState, Skeleton } from "../components/EmptyState";
 import { Modal } from "../components/Modal";
@@ -330,9 +331,254 @@ function jobOfType(info: TrainingInfo | undefined, type: Job["type"]): Job | nul
   if (!info) return null;
   if (type === "dataset_prep" && info.prep_job) return info.prep_job;
   if (type === "lora_train" && info.train_job) return info.train_job;
+  if (type === "lora_shootout" && info.shootout_job) return info.shootout_job;
   const list = info.jobs ?? [];
   const matches = list.filter((j) => j.type === type);
   return matches.length ? matches[matches.length - 1] : null;
+}
+
+/** After training: optional checkpoint shootout — render every saved version,
+ *  score likeness + quality, and point the character at the winner. */
+function ShootoutPanel({
+  characterId,
+  info,
+  onClose,
+}: {
+  characterId: number;
+  info: TrainingInfo;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const character = info.character;
+  const shootout = jobOfType(info, "lora_shootout");
+
+  const [strengths, setStrengths] = useState("0.7,1.0");
+  const [ckpts, setCkpts] = useState("1500,2000,2500,final");
+  const [seeds, setSeeds] = useState("1");
+  const [rerunOpen, setRerunOpen] = useState(false);
+
+  const start = useMutation({
+    mutationFn: () =>
+      apiPost(`/api/training/${characterId}/shootout`, {
+        strengths: strengths.trim(),
+        ckpts: ckpts.trim(),
+        seeds: Number.parseInt(seeds, 10) || 1,
+      }),
+    onSuccess: () => {
+      setRerunOpen(false);
+      toast("Shootout started — rendering test shots of each version.", "success");
+      qc.invalidateQueries({ queryKey: ["training", characterId] });
+    },
+    onError: (e: Error) => toast(e.message, "error"),
+  });
+
+  const apply = useMutation({
+    mutationFn: (row: ShootoutRow) =>
+      apiPost(`/api/training/${characterId}/shootout/apply`, {
+        checkpoint: row.checkpoint,
+        strength: row.strength,
+      }),
+    onSuccess: () => {
+      toast("Character switched to that version.", "success");
+      qc.invalidateQueries({ queryKey: ["training", characterId] });
+      qc.invalidateQueries({ queryKey: ["characters"] });
+    },
+    onError: (e: Error) => toast(e.message, "error"),
+  });
+
+  const options = (
+    <div className="space-y-3">
+      <div className="grid grid-cols-3 gap-3">
+        <Field label="Strengths" hint="Comma list — one grid row per strength.">
+          <Input value={strengths} onChange={(e) => setStrengths(e.target.value)} />
+        </Field>
+        <Field label="Checkpoints" hint='Step numbers and/or "final"; empty = all (slower).'>
+          <Input value={ckpts} onChange={(e) => setCkpts(e.target.value)} placeholder="all" />
+        </Field>
+        <Field label="Shots per prompt" hint="More is fairer but slower (1–4).">
+          <Input
+            type="number"
+            min={1}
+            max={4}
+            value={seeds}
+            onChange={(e) => setSeeds(e.target.value)}
+          />
+        </Field>
+      </div>
+      <Button
+        variant="primary"
+        className="w-full"
+        busy={start.isPending}
+        onClick={() => start.mutate()}
+      >
+        <Trophy size={15} /> Start shootout (~10–20 min on the GPU)
+      </Button>
+    </div>
+  );
+
+  // running / queued
+  if (shootout && (shootout.status === "running" || shootout.status === "queued")) {
+    return (
+      <div className="space-y-4">
+        <div className="text-center">
+          <p className="text-sm font-medium text-paper">Checkpoint shootout in progress</p>
+          <p className="mt-1 text-xs text-fog">
+            Rendering the same test shots with each saved version, then scoring them for
+            likeness and image quality. You can close this window; it keeps running.
+          </p>
+        </div>
+        <ProgressBar value={shootout.progress} />
+        {shootout.detail && (
+          <pre className="max-h-24 overflow-y-auto whitespace-pre-wrap rounded-md border border-line bg-ink-950 p-2 text-[11px] leading-relaxed text-fog">
+            {shootout.detail}
+          </pre>
+        )}
+        <div className="flex justify-center">
+          <Button onClick={onClose}>Close — keep running</Button>
+        </div>
+      </div>
+    );
+  }
+
+  // done → results
+  if (shootout?.status === "done") {
+    let results: ShootoutRow[] = [];
+    let hasGrid = false;
+    try {
+      const parsed = JSON.parse(shootout.result_json ?? "{}");
+      results = parsed.results ?? [];
+      hasGrid = !!parsed.grid;
+    } catch {
+      /* fall through to the raw-grid fallback below */
+    }
+    const gridUrl = `/api/training/${characterId}/shootout/grid?v=${shootout.id}`;
+    const inUse = (row: ShootoutRow) =>
+      !!character?.lora_name?.endsWith(`/${row.checkpoint}`) &&
+      Math.abs((character?.lora_strength ?? 1) - row.strength) < 0.001;
+
+    return (
+      <div className="space-y-4">
+        <div>
+          <p className="text-sm font-medium text-paper">Shootout results</p>
+          <p className="mt-0.5 text-xs text-fog">
+            Ranked by likeness to the training photos (60%), prompt match and cleanliness
+            (20% each). Trust your eyes too — open the contact sheet before picking.
+          </p>
+        </div>
+        {hasGrid && (
+          <a href={gridUrl} target="_blank" rel="noreferrer" title="Open full size">
+            <img
+              src={gridUrl}
+              alt="Checkpoint comparison contact sheet"
+              className="max-h-56 w-full rounded-md border border-line object-contain"
+            />
+          </a>
+        )}
+        {results.length > 0 ? (
+          <div className="overflow-x-auto rounded-md border border-line">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-line text-left text-fog">
+                  <th className="p-2 font-medium">Version</th>
+                  <th className="p-2 font-medium">Strength</th>
+                  <th className="p-2 font-medium">Likeness</th>
+                  <th className="p-2 font-medium">Prompt</th>
+                  <th className="p-2 font-medium">Clean</th>
+                  <th className="p-2 font-medium">Total</th>
+                  <th className="p-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {results.map((row) => (
+                  <tr
+                    key={`${row.checkpoint}@${row.strength}`}
+                    className={`border-b border-line last:border-0 ${
+                      row.rank === 1 ? "bg-amber-450/5" : ""
+                    }`}
+                  >
+                    <td className="p-2 text-paper">
+                      <span className="inline-flex items-center gap-1.5">
+                        {row.rank === 1 && <Trophy size={12} className="text-amber-450" />}
+                        {row.label}
+                      </span>
+                      {row.no_face > 0 && (
+                        <span className="ml-1.5 text-[10px] text-status-failed">
+                          {row.no_face}/{row.cells} no face
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-2 text-mist">{row.strength}</td>
+                    <td className="p-2 text-mist">{row.likeness.toFixed(1)}</td>
+                    <td className="p-2 text-mist">{row.prompt_match.toFixed(1)}</td>
+                    <td className="p-2 text-mist">{row.clean.toFixed(1)}</td>
+                    <td className="p-2 font-semibold text-paper">{row.total.toFixed(2)}</td>
+                    <td className="p-2 text-right">
+                      {inUse(row) ? (
+                        <Badge tone="green">in use</Badge>
+                      ) : (
+                        <Button
+                          size="sm"
+                          busy={apply.isPending}
+                          onClick={() => apply.mutate(row)}
+                        >
+                          Use this
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="rounded-md border border-line p-3 text-xs text-fog">
+            The scores couldn't be read — open the contact sheet above and pick by eye, then
+            set the version manually in the character's edit dialog.
+          </p>
+        )}
+        <div className="flex items-center justify-between">
+          <Button variant="ghost" size="sm" onClick={() => setRerunOpen((v) => !v)}>
+            Run again with different settings
+          </Button>
+          <Button variant="primary" onClick={onClose}>
+            Done
+          </Button>
+        </div>
+        {rerunOpen && options}
+      </div>
+    );
+  }
+
+  // failed / never run → pitch + options
+  return (
+    <div className="space-y-4">
+      <div className="text-center">
+        <Trophy size={26} className="mx-auto text-amber-450" />
+        <p className="mt-2 text-sm font-medium text-paper">
+          {shootout?.status === "failed" ? "Shootout failed" : "Training complete"}
+        </p>
+        {shootout?.status === "failed" ? (
+          <p className="mx-auto mt-1 max-w-md rounded-md border border-status-failed/30 bg-status-failed/10 p-2 text-xs text-status-failed">
+            {shootout.error ?? "unknown error"}
+          </p>
+        ) : (
+          <p className="mx-auto mt-1 max-w-md text-xs text-fog">
+            This character is ready — mention them with @ in any shot. Optional quality pass:
+            training saved several versions along the way, and the last one isn't always the
+            best. The shootout renders test shots with each version, scores the likeness, and
+            lets you pick the winner.
+          </p>
+        )}
+      </div>
+      {options}
+      <div className="flex justify-center">
+        <Button variant="ghost" onClick={onClose}>
+          Skip — use the final version
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 /** Steps 3+4: prep progress → report review → train → training progress. */
@@ -374,19 +620,14 @@ function TrainingProgressPanel({ characterId, onClose }: { characterId: number; 
   const train = jobOfType(info, "lora_train");
   const report = info.report ?? info.report_md ?? null;
 
-  // Training finished
-  if (train?.status === "done") {
-    return (
-      <div className="space-y-4 text-center">
-        <GraduationCap size={28} className="mx-auto text-status-approved" />
-        <p className="text-sm text-paper">
-          Training complete. This character is ready — mention them with @ in any shot.
-        </p>
-        <Button variant="primary" onClick={onClose}>
-          Done
-        </Button>
-      </div>
-    );
+  // Training finished (or already-trained character reopened) → shootout panel.
+  // A queued/running retrain still wins below, so only route here when the
+  // latest train is done or there is no train job at all.
+  if (
+    train?.status === "done" ||
+    (train == null && info.character?.status === "trained")
+  ) {
+    return <ShootoutPanel characterId={characterId} info={info} onClose={onClose} />;
   }
 
   // Step 4: training running
@@ -672,7 +913,15 @@ function NewCharacterModal({ onClose }: { onClose: () => void }) {
 
 /* ---------------- edit modal ---------------- */
 
-function EditCharacterModal({ character, onClose }: { character: Character; onClose: () => void }) {
+function EditCharacterModal({
+  character,
+  onClose,
+  onShootout,
+}: {
+  character: Character;
+  onClose: () => void;
+  onShootout?: () => void;
+}) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [trigger, setTrigger] = useState(character.trigger);
@@ -728,18 +977,28 @@ function EditCharacterModal({ character, onClose }: { character: Character; onCl
           <TextArea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Field>
         <div className="flex items-center justify-between gap-2">
-          <Button
-            busy={genThumb.isPending}
-            disabled={!character.lora_name}
-            onClick={() => genThumb.mutate()}
-            title={
-              character.lora_name
-                ? "Render a fresh portrait with this character's LoRA and use it as the card thumbnail"
-                : "Needs a LoRA — train or import one first"
-            }
-          >
-            <ImagePlus size={14} /> Generate thumbnail
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              busy={genThumb.isPending}
+              disabled={!character.lora_name}
+              onClick={() => genThumb.mutate()}
+              title={
+                character.lora_name
+                  ? "Render a fresh portrait with this character's LoRA and use it as the card thumbnail"
+                  : "Needs a LoRA — train or import one first"
+              }
+            >
+              <ImagePlus size={14} /> Generate thumbnail
+            </Button>
+            {character.status === "trained" && onShootout && (
+              <Button
+                onClick={onShootout}
+                title="Compare the training checkpoints and pick the best version"
+              >
+                <Trophy size={14} /> Shootout
+              </Button>
+            )}
+          </div>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose}>
               Cancel
@@ -858,7 +1117,16 @@ export function CharactersPage() {
       )}
 
       {creating && <NewCharacterModal onClose={() => setCreating(false)} />}
-      {editing && <EditCharacterModal character={editing} onClose={() => setEditing(null)} />}
+      {editing && (
+        <EditCharacterModal
+          character={editing}
+          onClose={() => setEditing(null)}
+          onShootout={() => {
+            setViewTrainingId(editing.id);
+            setEditing(null);
+          }}
+        />
+      )}
       {viewTrainingId != null && (
         <Modal title="Character training" onClose={() => setViewTrainingId(null)} wide>
           <TrainingProgressPanel

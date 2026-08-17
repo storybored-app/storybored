@@ -71,12 +71,59 @@ mkdir -p "output/$job"
 echo "starting training for $job"
 for s in 500 1000 1500 2000 2500 3000; do
   echo "step $s/3000 loss 0.42"
-  : > "output/$job/$job-$(printf '%06d' "$s").safetensors"
+  : > "output/$job/${{job}}_$(printf '%09d' "$s").safetensors"
   sleep {delay}
 done
 : > "output/$job/$job.safetensors"
 echo "training complete: output/$job/$job.safetensors"
 """
+
+
+# fake compare.py / score.py — run via the factory-python fallback (no .venv in
+# the fake checkout → sys.executable), so stdlib only. Raw strings: the inner
+# escapes belong to the generated scripts.
+FAKE_COMPARE = r'''
+import argparse
+from pathlib import Path
+
+ap = argparse.ArgumentParser()
+ap.add_argument("job")
+ap.add_argument("--strengths", default="1.0")
+ap.add_argument("--ckpts", default=None)
+ap.add_argument("--seeds", type=int, default=1)
+ap.add_argument("--comfy", default="")
+a = ap.parse_args()
+comp = Path("output") / a.job / "comparison"
+comp.mkdir(parents=True, exist_ok=True)
+total = 4
+for n in range(1, total + 1):
+    print(f"[compare] [{n}/{total}] step 2500 @ 1.0 p{n % 2} seed0", flush=True)
+(comp / "grid.jpg").write_bytes(b"\xff\xd8\xff\xe0fakejpeg\xff\xd9")
+print(f"[compare] done: {comp / 'grid.jpg'}")
+'''
+
+FAKE_SCORE = r'''
+import argparse
+from pathlib import Path
+
+ap = argparse.ArgumentParser()
+ap.add_argument("job")
+ap.add_argument("--comfy", default="")
+a = ap.parse_args()
+comp = Path("output") / a.job / "comparison"
+comp.mkdir(parents=True, exist_ok=True)
+print("[score] scoring likeness for 4 renders...", flush=True)
+rows = [
+    (1, a.job, 1.0, 8.93, 9.10, 8.2, 8.5, 0, 2),
+    (2, a.job + "_000002500", 0.7, 8.12, 8.30, 8.0, 7.9, 1, 2),
+]
+hdr = f"{'rank':<5}{'checkpoint':<34}{'str':<6}{'TOTAL':<7}{'likeness':<10}{'prompt':<8}{'clean':<7}{'no-face'}"
+lines = [hdr, "-" * len(hdr)]
+for r, ck, s, total, like, pm, cl, nf, n in rows:
+    lines.append(f"{r:<5}{ck:<34}{s:<6}{total:<7.2f}{like:<10.2f}{pm:<8.1f}{cl:<7.1f}{nf}/{n}")
+(comp / "scores.md").write_text("# scores\n\n```\n" + "\n".join(lines) + "\n```\n")
+print("[score] written scores.md")
+'''
 
 
 def write_factory(root: Path, delay: float = 0.02) -> Path:
@@ -85,6 +132,8 @@ def write_factory(root: Path, delay: float = 0.02) -> Path:
     (root / "train.sh").write_text(TRAIN_SH.format(delay=delay))
     for name in ("prep.sh", "train.sh"):
         os.chmod(root / name, 0o755)
+    (root / "compare.py").write_text(FAKE_COMPARE)
+    (root / "score.py").write_text(FAKE_SCORE)
     return root
 
 
@@ -536,3 +585,158 @@ def test_train_progress_tracks_tqdm_line(tmp_path):
     progress, detail = _train_progress(log_file, tmp_path / "no_output", "mychar")
     assert abs(progress - 0.5) < 0.01  # live steps, not just checkpoint jumps
     assert "1500/3000" in detail
+
+
+# -- checkpoint shootout ------------------------------------------------------------
+
+
+def _make_trained_character(app, factory: Path, handle: str = "hero"):
+    """A trained character with a finished-looking output dir (no slow e2e)."""
+    job = f"{handle}-v1"
+    out = factory / "output" / job
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"{job}_000002500.safetensors").touch()
+    (out / f"{job}.safetensors").touch()
+    with Session(app.state.engine, expire_on_commit=False) as s:
+        c = Character(
+            name=handle.title(),
+            handle=handle,
+            status="trained",
+            lora_name=f"lorafactory_{job}/{job}.safetensors",
+        )
+        s.add(c)
+        s.commit()
+        s.refresh(c)
+    return c.id, job
+
+
+def test_shootout_e2e(tmp_path):
+    factory = write_factory(tmp_path / "factory")
+    app, _ = make_app(tmp_path, factory)
+    with TestClient(app) as client:
+        cid, job_name = _make_trained_character(app, factory)
+        r = client.post(
+            f"/api/training/{cid}/shootout",
+            json={"strengths": "0.7,1.0", "ckpts": "2500,final", "seeds": 1},
+        )
+        assert r.status_code == 200, r.text
+        # double-start guarded while queued/running
+        assert client.post(f"/api/training/{cid}/shootout", json={}).status_code == 409
+
+        row = wait_job(client, r.json()["job_id"], {"done", "failed"})
+        assert row["status"] == "done", row
+        result = json.loads(row["result_json"])
+        assert result["grid"] is True
+        ranks = result["results"]
+        assert ranks and ranks[0]["rank"] == 1
+        assert ranks[0]["checkpoint"] == f"{job_name}.safetensors"
+        assert ranks[0]["label"] == "final"
+        assert ranks[0]["strength"] == 1.0
+        stepped = next(x for x in ranks if x["label"] == "step 2500")
+        assert stepped["checkpoint"] == f"{job_name}_000002500.safetensors"
+        assert stepped["no_face"] == 1
+
+        # status endpoint exposes the shootout job
+        st = client.get(f"/api/training/{cid}").json()
+        assert st["shootout_job"]["status"] == "done"
+
+        # contact sheet is served
+        g = client.get(f"/api/training/{cid}/shootout/grid")
+        assert g.status_code == 200
+        assert g.headers["content-type"].startswith("image/jpeg")
+
+        # apply the stepped checkpoint at 0.8 → character repointed
+        r = client.post(
+            f"/api/training/{cid}/shootout/apply",
+            json={"checkpoint": f"{job_name}_000002500.safetensors", "strength": 0.8},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["lora_name"] == f"lorafactory_{job_name}/{job_name}_000002500.safetensors"
+        assert body["lora_strength"] == 0.8
+        assert body["status"] == "trained"
+
+
+def test_shootout_guards(tmp_path):
+    factory = write_factory(tmp_path / "factory")
+    app, _ = make_app(tmp_path, factory)
+    with TestClient(app) as client:
+        # not trained yet → 409
+        with Session(app.state.engine, expire_on_commit=False) as s:
+            c = Character(name="Rey", handle="rey", status="dataset")
+            s.add(c)
+            s.commit()
+            s.refresh(c)
+        assert client.post(f"/api/training/{c.id}/shootout", json={}).status_code == 409
+
+        cid, job_name = _make_trained_character(app, factory, handle="mara")
+        # malformed knobs → 400 (they become compare.py argv)
+        bad = [
+            {"strengths": "abc"},
+            {"strengths": ""},
+            {"ckpts": "2500;rm -rf /"},
+            {"seeds": 9},
+        ]
+        for body in bad:
+            assert client.post(f"/api/training/{cid}/shootout", json=body).status_code == 400, body
+        # no grid before a shootout ran
+        assert client.get(f"/api/training/{cid}/shootout/grid").status_code == 404
+        # apply: foreign/traversal names rejected before touching the disk
+        r = client.post(
+            f"/api/training/{cid}/shootout/apply",
+            json={"checkpoint": "../evil.safetensors"},
+        )
+        assert r.status_code == 400
+        # a well-formed name that doesn't exist on disk
+        r = client.post(
+            f"/api/training/{cid}/shootout/apply",
+            json={"checkpoint": f"{job_name}_000000123.safetensors"},
+        )
+        assert r.status_code == 404
+        # out-of-range strength
+        r = client.post(
+            f"/api/training/{cid}/shootout/apply",
+            json={"checkpoint": f"{job_name}.safetensors", "strength": 5},
+        )
+        assert r.status_code == 400
+
+        # a character with no checkpoints at all → 409
+        with Session(app.state.engine, expire_on_commit=False) as s:
+            ghost = Character(name="Ghost", handle="ghost", status="trained")
+            s.add(ghost)
+            s.commit()
+            s.refresh(ghost)
+        assert client.post(f"/api/training/{ghost.id}/shootout", json={}).status_code == 409
+
+
+def test_parse_scores_and_checkpoint_helpers(tmp_path):
+    from storybored.training.lora_factory import checkpoint_filenames, parse_scores
+
+    md = (
+        "# scores\n\n```\n"
+        "rank checkpoint str TOTAL likeness prompt clean no-face\n"
+        "----\n"
+        "1    hero-v1        1.0   8.93   9.10      9.1     8.5    0/2\n"
+        "2    hero-v1_000002500 0.7 8.12  8.30      8.0     7.9    1/2\n"
+        "not a row\n```\n"
+    )
+    rows = parse_scores(md, "hero-v1")
+    assert [r["label"] for r in rows] == ["final", "step 2500"]
+    assert rows[0]["checkpoint"] == "hero-v1.safetensors"
+    assert rows[1]["strength"] == 0.7
+
+    factory = tmp_path / "f"
+    out = factory / "output" / "hero-v1"
+    out.mkdir(parents=True)
+    for name in (
+        "hero-v1.safetensors",
+        "hero-v1_000000500.safetensors",
+        "hero-v1_000002500.safetensors",
+        "other.safetensors",
+    ):
+        (out / name).touch()
+    assert checkpoint_filenames(factory, "hero-v1") == [
+        "hero-v1_000000500.safetensors",
+        "hero-v1_000002500.safetensors",
+        "hero-v1.safetensors",  # unsuffixed final sorts last
+    ]
