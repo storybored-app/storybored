@@ -311,6 +311,7 @@ async def list_workflows(
     client = ComfyClient(comfy_url)
     packs = load_packs(settings)
     file_catalog = catalog.load_catalog(settings)
+    user_root = (settings.data_path / "workflows").resolve()
     defaults = {
         kind: (default_ids or {}).get(kind) or default_workflow_id(packs, kind)
         for kind in ("image", "video")
@@ -341,6 +342,8 @@ async def list_workflows(
             ],
             "missing_nodes": availability["missing_nodes"],
             "default": pack.id == defaults.get(kind),
+            # user-imported packs (DATA_DIR/workflows) may be removed from the UI
+            "removable": pack.dir.resolve().is_relative_to(user_root),
             "loras": stack,
             "added_loras": added,
             "loras_modified": bool(overrides),
