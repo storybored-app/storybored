@@ -106,7 +106,12 @@ Generation:
 - `GET /api/shots/{id}/takes` · `POST /api/takes/{id}/pick` · `DELETE /api/takes/{id}`
 - `POST /api/shots/{id}/approve` / `POST /api/shots/{id}/unapprove`
 - `POST /api/shots/{id}/render-video {workflow_id?, motion_prompt?, frame_position?}` →
-  {job_id}; motion_prompt/frame_position persist onto the shot before the job queues
+  {job_id}; motion_prompt/frame_position persist onto the shot before the job queues.
+  Pre-flights the resolved video pack exactly like the image path: 503 when the
+  engine is unreachable, 409 listing missing models/nodes — never enqueues blind.
+  The pack resolves as explicit id → `default_video_workflow` setting → first
+  video pack by id (no hardcoded default). `render-videos` runs the same gate
+  once for the whole batch.
 - `POST /api/projects/{id}/render-videos {}` → queue video for every approved shot lacking one
 - `POST /api/projects/{id}/animatic` → {job_id}; result_json.file_path = MP4 under DATA_DIR/exports
 - `GET /api/projects/{id}/exports`
@@ -155,8 +160,14 @@ Infra:
 - `GET /api/events` — SSE. Event types: `job` (full job row on any change),
   `shot` (shot row on status/take change), `take`, `character`. data = JSON row.
 - `GET /api/workflows` → registry with per-workflow `available: bool` +
-  `missing_models: [str]` (validated against ComfyUI /object_info enums, cached 60s),
-  plus `default: bool` (per kind, from default_image/video_workflow), the pack's baked
+  `missing_models: [str]` + `missing_nodes: [str]` (validated against ComfyUI
+  /object_info, cached 60s; `?refresh=true` drops the cache first — the Settings
+  "Refresh" button). Availability checks the **effective** model set: an
+  `engine_models` slot swap replaces the baked filename in the required set, and
+  a baked LoRA toggled off via `engine_loras` drops out of it. `missing_nodes`
+  lists graph node classes (plus manifest `required_nodes` extras) the engine
+  doesn't have — a missing custom node pack, distinct from missing model files.
+  Also per workflow: `default: bool` (per kind, from default_image/video_workflow), the pack's baked
   `loras: [{node, lora_name, strength, baked_strength, enabled, disabled_with_character}]`
   in chain order with user overrides applied, `added_loras: [{lora_name, strength,
   enabled}]`, `loras_modified: bool`, the pack's swappable

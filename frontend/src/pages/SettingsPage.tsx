@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, FlaskConical, Plus, Save, X } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  FlaskConical,
+  Plus,
+  RefreshCw,
+  Save,
+  X,
+} from "lucide-react";
 import { apiGet, apiPut } from "../lib/api";
 import {
   healthDetail,
@@ -162,6 +170,7 @@ function WorkflowRow({
   }, [wfKey]);
 
   const missing = wf.missing_models ?? [];
+  const missingNodes = wf.missing_nodes ?? [];
   const available = wf.available !== false;
   // No missing-model list + an error means the engine itself was unreachable —
   // don't mislabel that as "missing models".
@@ -210,8 +219,10 @@ function WorkflowRow({
           <Badge tone="green">ready</Badge>
         ) : unreachable ? (
           <Badge tone="amber">engine offline</Badge>
-        ) : (
+        ) : missing.length > 0 ? (
           <Badge tone="red">missing models</Badge>
+        ) : (
+          <Badge tone="red">missing nodes</Badge>
         )}
       </button>
       {open && (
@@ -230,6 +241,21 @@ function WorkflowRow({
                 {missing.map((m) => (
                   <li key={m} className="font-mono text-xs text-status-failed/90">
                     {m}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {!unreachable && missingNodes.length > 0 && (
+            <div className="mb-2">
+              <p className="mb-1 text-xs text-fog">
+                Missing custom nodes — install the node pack that provides each of
+                these in your rendering engine, then hit Refresh:
+              </p>
+              <ul className="space-y-0.5">
+                {missingNodes.map((n) => (
+                  <li key={n} className="font-mono text-xs text-status-failed/90">
+                    {n}
                   </li>
                 ))}
               </ul>
@@ -567,6 +593,14 @@ export function SettingsPage() {
     saveEngineModelsMut.mutate(next);
   };
 
+  // Re-check availability NOW: the server drops its 60s engine cache first, so
+  // models/nodes installed a moment ago show up without waiting.
+  const refreshWorkflows = useMutation({
+    mutationFn: () => apiGet<WorkflowManifest[]>("/api/workflows?refresh=true"),
+    onSuccess: (data) => qc.setQueryData(["workflows"], data),
+    onError: (e: Error) => toast(e.message, "error"),
+  });
+
   const makeDefault = useMutation({
     mutationFn: (wf: WorkflowManifest) =>
       apiPut("/api/settings", {
@@ -857,14 +891,24 @@ export function SettingsPage() {
 
       {/* workflow packs */}
       <section className="overflow-hidden rounded-xl border border-line bg-ink-900/40">
-        <header className="border-b border-line px-4 py-3">
-          <h2 className="text-sm font-semibold">Engines</h2>
-          <p className="mt-0.5 text-xs text-fog">
-            Rendering styles installed on this system — the <em>default</em> one renders
-            shots that don't pick an engine. Expand a row to swap its base model and
-            edit the LoRAs it runs with. Add more engines by dropping a pack into the
-            workflows folder.
-          </p>
+        <header className="flex items-start gap-3 border-b border-line px-4 py-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold">Engines</h2>
+            <p className="mt-0.5 text-xs text-fog">
+              Rendering styles installed on this system — the <em>default</em> one renders
+              shots that don't pick an engine. Expand a row to swap its base model and
+              edit the LoRAs it runs with. Add more engines by dropping a pack into the
+              workflows folder.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => refreshWorkflows.mutate()}
+            busy={refreshWorkflows.isPending}
+            title="Re-check which models and nodes the engine has right now"
+          >
+            <RefreshCw size={13} /> Refresh
+          </Button>
         </header>
         {wfError ? (
           <p className="px-4 py-6 text-center text-sm text-fog">

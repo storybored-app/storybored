@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 
 from storybored.config import Settings
 from storybored.db import get_session
+from storybored.engine.comfy_client import clear_object_info_cache
 from storybored.models import Setting
 from storybored.schemas import SettingsUpdate
 
@@ -182,4 +183,8 @@ def put_settings(
             row.value = value
         session.add(row)
     session.commit()
+    if "comfyui_url" in body.values:
+        # model/node availability is cached per engine URL for 60s — flush so
+        # the very next /api/workflows call asks the *new* engine, not the old
+        clear_object_info_cache()
     return get_settings(request, session)

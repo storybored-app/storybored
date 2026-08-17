@@ -105,7 +105,8 @@ API export keeps only ids, so keep the editor-format `.json` around as your
 | `lora_injection` | no | Where user-appended LoRAs splice in when the pack has no `character_injection` (video packs): `{"after_node": "1", "class_type": "LoraLoaderModelOnly"}`. `class_type` defaults to `LoraLoader`; model-only loaders take over only the model path (no clip). |
 | `model_slots` | no | Loader inputs users may swap from Settings: `[{"key": "unet", "label": "Base model", "node": "1", "input": "unet_name"}]`. The UI lists the engine's dropdown enum for each slot; choices are stored in the `engine_models` setting and written onto the input at render time. |
 | `frame_conditioning` | no | Video packs whose sampler accepts both a first- and a last-frame image: `{"node": "6", "first": "first_frame", "last": "last_frame"}`. Enables the shot-level "still anchors first/last frame" toggle — "last" moves whatever feeds the first input onto the last input. |
-| `required_models` | no | Map of `"<ClassType>.<input_name>"` → list of model filenames the graph needs. Validated against ComfyUI `/object_info` enums (cached 60 s); misses mark the pack unavailable with the missing names listed. |
+| `required_models` | no | Map of `"<ClassType>.<input_name>"` → list of model filenames the graph needs. Validated against ComfyUI `/object_info` enums (cached 60 s); misses mark the pack unavailable with the missing names listed. Availability checks the **effective** set: a user's Settings model swap replaces the baked filename, and a baked LoRA the user toggled off is not required. |
+| `required_nodes` | no | Extra node **class names** to require beyond what the graph already references (rarely needed — every `class_type` in your graph is checked automatically). Missing classes mark the pack unavailable with a "missing custom nodes" list, so users learn they need a node pack, not a model file. |
 
 ### Parameter types
 

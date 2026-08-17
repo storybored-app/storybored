@@ -44,6 +44,9 @@ class FakeComfyState:
         self.models: dict[str, list[str]] = {
             "LoraLoader.lora_name": list(DEFAULT_CHARACTER_LORAS),
         }
+        #: node classes this fake install "has" beyond those implied by
+        #: self.models (availability checks every graph class via /object_info)
+        self.node_classes: set[str] = set()
         self.prompts: dict[str, dict] = {}  # prompt_id -> submitted graph
         self.order: list[str] = []
         self.polls: dict[str, int] = {}  # prompt_id -> history polls so far
@@ -59,7 +62,9 @@ class FakeComfyState:
         self.request_counts[path] = self.request_counts.get(path, 0) + 1
 
     def allow_pack_models(self, workflows_dir: Path = REPO_WORKFLOWS) -> None:
-        """Union all required_models from the repo's workflow packs into the enums."""
+        """Union the repo packs' required_models into the enums and their
+        graphs' node classes into the installed-class set, so the shipped
+        packs validate as fully available against this fake."""
         for manifest_path in sorted(workflows_dir.glob("*/manifest.json")):
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             for spec, files in (manifest.get("required_models") or {}).items():
@@ -67,6 +72,18 @@ class FakeComfyState:
                 for f in files or []:
                     if f not in enum:
                         enum.append(f)
+            graph_path = manifest_path.parent / (manifest.get("graph") or "graph.json")
+            if graph_path.is_file():
+                graph = json.loads(graph_path.read_text(encoding="utf-8"))
+                self.allow_graph_nodes(graph)
+
+    def allow_graph_nodes(self, graph: dict) -> None:
+        """Mark every class a graph uses as installed on this fake."""
+        self.node_classes.update(
+            str(node.get("class_type", ""))
+            for node in graph.values()
+            if isinstance(node, dict) and node.get("class_type")
+        )
 
     def is_finished(self, prompt_id: str) -> bool:
         return self.polls.get(prompt_id, 0) > self.polls_before_done
@@ -105,6 +122,8 @@ class FakeComfyState:
             cls: {"input": {"required": {inp: [enum] for inp, enum in inputs.items()}}}
             for cls, inputs in by_class.items()
         }
+        for cls in self.node_classes:
+            payload.setdefault(cls, {"input": {"required": {}}})
         if class_type is not None:
             return {class_type: payload[class_type]} if class_type in payload else {}
         return payload

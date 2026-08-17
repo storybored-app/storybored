@@ -143,6 +143,8 @@ export interface WorkflowManifest {
   parameters?: WorkflowParameter[];
   available?: boolean;
   missing_models?: string[];
+  /** Node classes the graph uses that this engine doesn't have installed. */
+  missing_nodes?: string[];
   /** Set by GET /api/workflows when the engine couldn't be reached at all. */
   error?: string;
   /** True for the engine used when a shot doesn't pick one (per kind). */

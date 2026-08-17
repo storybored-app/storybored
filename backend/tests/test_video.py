@@ -10,13 +10,25 @@ from pathlib import Path
 
 import imageio_ffmpeg
 import pytest
+from fake_comfy import fake_comfy  # noqa: F401 - pytest fixture
 from PIL import Image
 from sqlmodel import Session, select
 
 import storybored.engine.video as video_mod
+from storybored.engine.comfy_client import clear_object_info_cache
 from storybored.models import Character, Project, Scene, Shot, ShotCharacter, Take
 
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
+
+
+@pytest.fixture(autouse=True)
+def engine(client, fake_comfy):  # noqa: F811 - fixture use
+    """Point the app at the fake engine so the render-video pre-flight gate
+    passes; the video handler itself still talks through the monkeypatched
+    client seam (fake_client)."""
+    r = client.put("/api/settings", json={"values": {"comfyui_url": fake_comfy.url}})
+    assert r.status_code == 200, r.text
+    return fake_comfy
 
 
 def wait_for(client, job_id, statuses, timeout=60.0):
@@ -210,9 +222,15 @@ def test_render_video_updates_motion_prompt(client, app, settings, fake_client):
     assert fake_client.graph["6"]["inputs"]["prompt"] == "zxqdog dog sprints away"
 
 
-def test_video_gen_applies_models_loras_and_last_frame(client, app, settings, fake_client):
+def test_video_gen_applies_models_loras_and_last_frame(
+    client, app, settings, fake_client, engine
+):
     """engine_models swap + engine_loras splice + frame_position=last, together."""
     ids = seed_shot(app, settings)
+    # the swapped-in UNET exists on the engine (just not in required_models) —
+    # the pre-flight must validate the EFFECTIVE model set, not the manifest's
+    engine.state.models["UNETLoader.unet_name"].append("pinkcherryMMH3_06Beta.safetensors")
+    clear_object_info_cache()
     r = client.put(
         "/api/settings",
         json={
@@ -274,6 +292,23 @@ def test_shot_frame_position_patch_drives_default_render(client, app, settings, 
     assert job["status"] == "done", job["error"]
     assert "first_frame" not in fake_client.graph["6"]["inputs"]
     assert fake_client.graph["6"]["inputs"]["last_frame"] == ["5", 0]
+
+
+def test_render_video_preflights_availability(client, app, settings, fake_client, engine):
+    """The video path gets the same gate as the image path: missing models on
+    the engine → 409 before any job is enqueued (single and batch endpoints)."""
+    ids = seed_shot(app, settings)
+    engine.state.models["UNETLoader.unet_name"] = []
+    clear_object_info_cache()
+
+    r = client.post(f"/api/shots/{ids['shot_id']}/render-video", json={})
+    assert r.status_code == 409
+    assert "minimax_h3_fl2va_pruned_nvfp4.safetensors" in r.json()["detail"]
+
+    r = client.post(f"/api/projects/{ids['project_id']}/render-videos")
+    assert r.status_code == 409
+    # nothing hit the queue
+    assert client.get("/api/jobs").json() == []
 
 
 def test_render_video_requires_approval(client, app, settings, fake_client):
