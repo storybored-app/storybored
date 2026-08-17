@@ -125,6 +125,26 @@ Generation:
 - `POST /api/projects/{id}/animatic` → {job_id}; result_json.file_path = MP4 under DATA_DIR/exports
 - `GET /api/projects/{id}/exports`
 
+Project archives (.storybored — full spec in the section below):
+- `POST /api/projects/{id}/export` → {job_id} — a `project_export` job on lane
+  `"io"` (non-GPU: runs alongside renders, never queues behind training).
+  Writes `DATA_DIR/exports/{id}/project-{id}.storybored`; result_json carries
+  file_path, size_bytes and download_url. Progress/detail like any job.
+- `GET /api/projects/{id}/export/download` → the archive as a file download
+  (resolve + is_relative_to traversal guard, same idiom as /api/media).
+- `POST /api/projects/import` multipart `{file, mode?=merge|rename}` → 201
+  `{project, warnings: [str], characters: {linked: [handle…], created:
+  [handle…], renamed: {old: new}}}`. Creates a brand-new project (never
+  overwrites); all IDs remapped, media re-homed under the new ids,
+  picked/video take pointers patched to the new take rows.
+  Character handling: **merge** (default) links existing characters by
+  case-insensitive handle and creates missing ones from the manifest;
+  **rename** keeps imported characters separate — colliding handles get a
+  numeric suffix (`ava` → `ava2`) and `@mentions` in shot descriptions and
+  motion prompts are rewritten. Missing LoRA files or engine packs are
+  returned as `warnings`, never failures. 400 on: bad zip, missing/invalid
+  manifest, newer schema_version, unsafe member paths (zip-slip).
+
 Characters:
 - `GET/POST /api/characters` · `PATCH/DELETE /api/characters/{id}`
 - `GET /api/characters/available-loras` → list from ComfyUI /object_info LoraLoader enum
@@ -251,8 +271,10 @@ Infra:
 
 ## Job runner (jobs/runner.py)
 
-- Single asyncio worker per lane; all v1 job types use lane "gpu" → strict serialization
-  (a 3-hour lora_train naturally blocks gens; UI must make the queue visible).
+- Single asyncio worker per lane; every ComfyUI/trainer job type uses lane "gpu" →
+  strict serialization (a 3-hour lora_train naturally blocks gens; UI must make the
+  queue visible). Lane "io" runs local-disk jobs (`project_export`) that must never
+  queue behind GPU work. New lanes are allowed for non-GPU work only.
 - Jobs persisted in DB; on startup, `running` jobs → `failed` ("interrupted by restart"),
   `queued` jobs resume. Cancellation: cooperative flag checked between steps; for
   subprocess jobs also terminate the process group; for comfy jobs POST /queue delete +
@@ -272,6 +294,42 @@ take else SKIP (log in result). Normalize: scale+pad to project resolution (16:9
 frame to pad shorter ones; stills hold for duration_s. Keep clip audio; stills get
 silence. Concat (filter_complex or intermediate TS segments — implementer's choice),
 write `DATA_DIR/exports/{project_id}/animatic_{timestamp}.mp4`, store as result.
+
+## Project archives (.storybored format)
+
+A `.storybored` file is a plain zip (schema_version **1**):
+
+```
+manifest.json          # see below
+media/{pid}/{sid}/...  # the project's takes (stills/clips/thumbs), stored
+                       # under their DATA_DIR-relative paths at export time
+exports/{pid}/*.mp4    # finished animatics
+workflows/{id}/...     # bundled USER engine packs (DATA_DIR/workflows only)
+```
+
+manifest.json keys:
+- `format`: `"storybored-project"` · `schema_version`: int, currently 1 —
+  import refuses anything newer than it supports, older versions must stay
+  importable · `app_version`: exporting StoryBored version · `exported_at`
+- `project`: the full nested board payload (project → scenes → shots → takes),
+  exactly what `GET /api/projects/{id}` returns
+- `characters`: **soft references** for every character cast in the project
+  (via shotcharacter): name, handle, trigger, class_word, lora_name,
+  lora_strength, notes, status, thumbnail_path. LoRA **weight files are never
+  bundled** — lora_name is an external reference the importing machine must
+  have installed in its engine. Thumbnails are machine-local media, also not
+  bundled.
+- `workflow_packs`: `{builtin: [id…], bundled: [id…], not_installed: [id…]}` —
+  packs referenced by the project's takes. Repo-shipped packs are noted by id
+  only; user packs (from DATA_DIR/workflows) are bundled under `workflows/`
+  in the zip and extracted on import **only if** that pack id isn't already
+  installed.
+
+Import is two-pass: insert project/scenes/shots, then takes, then patch each
+shot's picked_take_id/video_take_id onto the new take ids. Every extracted
+member resolves under DATA_DIR (resolve + is_relative_to — the same guard as
+media serving; a traversal member aborts the import with 400 and the
+half-imported trees are removed).
 
 ## LLM breakdown (llm/)
 

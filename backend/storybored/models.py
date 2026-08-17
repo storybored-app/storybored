@@ -77,7 +77,8 @@ class Take(SQLModel, table=True):
 
 class Job(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    type: str  # image_gen | video_gen | animatic | dataset_prep | lora_train | lora_shootout
+    type: str  # image_gen | video_gen | animatic | dataset_prep | lora_train
+    #   | lora_shootout | character_thumb (lane "gpu") | project_export (lane "io")
     status: str = "queued"  # queued | running | done | failed | cancelled
     lane: str = "gpu"
     #: project this job belongs to, when one is known at enqueue time (character

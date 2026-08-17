@@ -48,7 +48,8 @@ storybored/
 │   │   ├── api/                 # one router per resource, all under /api
 │   │   │   ├── projects.py scenes.py shots.py characters.py
 │   │   │   ├── jobs.py generate.py breakdown.py export.py settings_api.py
-│   │   │   └── workflows_api.py training.py health.py media.py
+│   │   │   ├── workflows_api.py training.py health.py media.py
+│   │   │   └── lifecycle.py     # .storybored archive export/import/download
 │   │   ├── engine/
 │   │   │   ├── comfy_client.py  # POST /prompt, poll /history, fetch /view, upload images
 │   │   │   ├── graph.py         # param application + character LoRA splice (pure functions)
@@ -59,7 +60,9 @@ storybored/
 │   │   │                        # + registry.py (job-type → handler registration)
 │   │   ├── llm/                 # client.py (OpenAI-compat chat) + breakdown.py (prompt/parse)
 │   │   ├── training/            # lora_factory.py (subprocess adapter) + fetch.py (URL import)
-│   │   ├── export/animatic.py   # imageio-ffmpeg concat; DATA_DIR/exports output
+│   │   ├── export/
+│   │   │   ├── animatic.py      # imageio-ffmpeg concat; DATA_DIR/exports output
+│   │   │   └── archive.py       # .storybored zip: export job (lane "io") + import
 │   │   └── seed/demo.py         # "The Last Lighthouse" demo project (original content)
 │   └── tests/                   # pytest; FAKE ComfyUI + FAKE LLM as local test servers
 └── frontend/                    # Vite + React 18 + TS + Tailwind v4; build output frontend/dist

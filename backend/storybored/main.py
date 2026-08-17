@@ -17,6 +17,7 @@ from storybored.api import (
     generate,
     health,
     jobs,
+    lifecycle,
     media,
     projects,
     scenes,
@@ -39,6 +40,7 @@ HANDLER_MODULES = [
     "storybored.engine.image",
     "storybored.engine.video",
     "storybored.export.animatic",
+    "storybored.export.archive",
     "storybored.training.lora_factory",
 ]
 
@@ -86,6 +88,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         breakdown,
         enhance,
         export,
+        lifecycle,
         settings_api,
         workflows_api,
         training,

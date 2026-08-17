@@ -46,6 +46,12 @@ animatic MP4.
   can layer global *style LoRAs* over every render, swap an engine's base
   model for any installed finetune, and pick the default engine — all stored
   as settings, never touching pack files.
+- **Portable projects** — export any project as a single `.storybored` file
+  (board, takes, animatics, even your custom engine packs) and import it on
+  another machine. Characters travel as references; matching `@handles` are
+  reused on import, or kept separate if you prefer.
+- **Clean deletes** — deleting a take, shot, scene or project also removes its
+  generated files from disk and cancels its queued jobs. No orphaned gigabytes.
 - **Graceful degradation** — no LLM configured? No trainer installed? Those
   features show a friendly "configure in Settings" hint instead of crashing.
 
