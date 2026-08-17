@@ -8,12 +8,22 @@ the right port must not pass). Status vocabulary:
 - ``unreachable``    — connection refused / timed out
 - ``unrecognized``   — something answered, but it doesn't look like the
                        expected service (wrong port, wrong app)
+- ``unauthorized``   — it answered 401/403: an API key is required (or the
+                       saved one was rejected)
 - ``error``          — the service answered with a 5xx
 - ``not_configured`` — no URL/path set
 - ``missing``        — (trainer/ffmpeg) configured path doesn't exist
+
+The LLM probe authenticates: when an API key is configured it is sent as
+``Authorization: Bearer …`` so hosted providers report ``ok`` instead of
+``unrecognized``. Keys are NEVER accepted as query params — candidate-URL
+probes use the saved key, and only when the candidate points at the same
+host as the configured base URL (same spirit as the key-exfil guard in
+llm/client.py).
 """
 
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, Request
@@ -25,6 +35,7 @@ from storybored.config import Settings
 from storybored.db import get_session
 from storybored.engine.comfy_client import ComfyClient
 from storybored.engine.registry import load_packs, pack_availability
+from storybored.llm.client import LLMNotConfiguredError, get_llm_config
 
 router = APIRouter(prefix="/api", tags=["health"])
 
@@ -38,14 +49,16 @@ STILLS_MIN_VRAM_GB = 16
 VIDEO_MIN_VRAM_GB = 24
 
 
-def _get_json(url: str) -> tuple[str, object]:
+def _get_json(url: str, headers: dict | None = None) -> tuple[str, object]:
     """GET url → (status, parsed body). Status per the module vocabulary."""
     try:
-        resp = httpx.get(url, timeout=PROBE_TIMEOUT_S)
+        resp = httpx.get(url, headers=headers or {}, timeout=PROBE_TIMEOUT_S)
     except httpx.HTTPError:
         return "unreachable", None
     if resp.status_code >= 500:
         return "error", None
+    if resp.status_code in (401, 403):
+        return "unauthorized", None
     if resp.status_code != 200:
         return "unrecognized", None
     try:
@@ -66,10 +79,35 @@ def probe_comfy(url: str) -> tuple[str, dict]:
     return status, {}
 
 
-def probe_llm(base_url: str) -> tuple[str, list[str]]:
+def llm_probe_key(session: Session, settings: Settings, target_url: str) -> str:
+    """The saved LLM API key for probing ``target_url`` — or "".
+
+    The key is only released when the probed URL points at the same host as
+    the *configured* base URL, so a candidate address typed into the wizard
+    can never siphon the stored secret (same spirit as the key-exfil guard
+    in llm/client.py, which this also inherits: an env key is already
+    stripped there when the base URL is a runtime override). Probe endpoints
+    never accept a key as a query param.
+    """
+    try:
+        config = get_llm_config(session, settings)
+    except LLMNotConfiguredError:
+        return ""
+    if not config.api_key:
+        return ""
+    if urlsplit(target_url.strip()).netloc != urlsplit(config.base_url).netloc:
+        return ""
+    return config.api_key
+
+
+def probe_llm(base_url: str, api_key: str = "") -> tuple[str, list[str]]:
     """Probe an OpenAI-compatible base URL. "ok" requires {base}/models to
-    return 200 JSON. Returns (status, model ids when the shape is standard)."""
-    status, data = _get_json(f"{base_url.rstrip('/')}/models")
+    return 200 JSON. ``api_key`` (when given) is sent as a Bearer token so
+    key-protected hosted providers can answer instead of 401ing into an
+    "unauthorized"/"unrecognized" verdict.
+    Returns (status, model ids when the shape is standard)."""
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
+    status, data = _get_json(f"{base_url.rstrip('/')}/models", headers)
     if status != "ok":
         return status, []
     models: list[str] = []
@@ -180,7 +218,8 @@ async def setup_probe(
             )
 
     if llm_url:
-        llm_status, models = await run_in_threadpool(probe_llm, llm_url)
+        llm_key = llm_probe_key(session, settings, llm_url)
+        llm_status, models = await run_in_threadpool(probe_llm, llm_url, llm_key)
     else:
         llm_status, models = "not_configured", []
 
@@ -202,7 +241,11 @@ def health(request: Request, session: Session = Depends(get_session)):
     comfy = probe_comfy(comfy_url)[0] if comfy_url else "not_configured"
 
     llm_base = effective_setting(session, settings, "llm_base_url")
-    llm = probe_llm(llm_base)[0] if llm_base else "not_configured"
+    llm = (
+        probe_llm(llm_base, llm_probe_key(session, settings, llm_base))[0]
+        if llm_base
+        else "not_configured"
+    )
 
     trainer = probe_trainer(effective_setting(session, settings, "lora_factory_dir"))
 
