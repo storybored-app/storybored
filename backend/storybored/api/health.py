@@ -17,15 +17,25 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, Request
+from fastapi.concurrency import run_in_threadpool
 from sqlmodel import Session
 
 from storybored.api.settings_api import effective_setting
 from storybored.config import Settings
 from storybored.db import get_session
+from storybored.engine.comfy_client import ComfyClient
+from storybored.engine.registry import load_packs, pack_availability
 
 router = APIRouter(prefix="/api", tags=["health"])
 
 PROBE_TIMEOUT_S = 3.0
+
+#: capability tiers derived from the engine's reported VRAM (GiB, rounded).
+#: "board" = no usable GPU: the board, script breakdown and animatic assembly
+#: still work; rendering doesn't. "stills" = image engines fit. "video" =
+#: video engines fit and the GPU is training-class.
+STILLS_MIN_VRAM_GB = 16
+VIDEO_MIN_VRAM_GB = 24
 
 
 def _get_json(url: str) -> tuple[str, object]:
@@ -83,6 +93,105 @@ def ffmpeg_status() -> str:
         return imageio_ffmpeg.get_ffmpeg_exe()
     except Exception:  # noqa: BLE001 - health must never raise
         return "missing"
+
+
+def parse_gpus(stats: dict) -> list[dict]:
+    """GPU rows from a ComfyUI /system_stats payload: {name, vram_gb}.
+
+    Only reports what the engine actually said — a device without a usable
+    ``vram_total`` gets ``vram_gb: None``, never a guessed number."""
+    gpus: list[dict] = []
+    for device in stats.get("devices") or []:
+        if not isinstance(device, dict) or device.get("type") == "cpu":
+            continue
+        name = str(device.get("name", "")).strip()
+        # ComfyUI appends the allocator after " : " ("cuda:0 <card> : cudaMallocAsync")
+        if " : " in name:
+            name = name.split(" : ")[0].strip()
+        vram = device.get("vram_total")
+        vram_gb = (
+            round(vram / 2**30, 1)
+            if isinstance(vram, (int, float)) and not isinstance(vram, bool) and vram > 0
+            else None
+        )
+        gpus.append({"name": name, "vram_gb": vram_gb})
+    return gpus
+
+
+def derive_tier(gpus: list[dict]) -> str:
+    """Capability tier from the best GPU with known VRAM (see constants).
+
+    Rounded to whole GiB before comparing so a "16 GB" card that reports
+    15.99 GiB still clears the stills bar."""
+    best = max((g["vram_gb"] for g in gpus if g["vram_gb"] is not None), default=None)
+    if best is None:
+        return "board"
+    if round(best) >= VIDEO_MIN_VRAM_GB:
+        return "video"
+    if round(best) >= STILLS_MIN_VRAM_GB:
+        return "stills"
+    return "board"
+
+
+@router.get("/setup/probe")
+async def setup_probe(
+    request: Request,
+    session: Session = Depends(get_session),
+    comfy_url: str | None = None,
+    llm_url: str | None = None,
+    trainer_dir: str | None = None,
+):
+    """One-shot probe for the setup wizard: everything /api/health knows plus
+    GPU/VRAM/tier, the LLM's model list, and per-pack availability.
+
+    Query params probe CANDIDATE values without persisting anything — omit
+    them to probe the effective settings. Numbers come straight from the
+    engine's /system_stats; nothing is invented when it doesn't answer."""
+    settings: Settings = request.app.state.settings
+    if comfy_url is None:
+        comfy_url = effective_setting(session, settings, "comfyui_url")
+    if llm_url is None:
+        llm_url = effective_setting(session, settings, "llm_base_url")
+    if trainer_dir is None:
+        trainer_dir = effective_setting(session, settings, "lora_factory_dir")
+
+    if comfy_url:
+        comfy_status, stats = await run_in_threadpool(probe_comfy, comfy_url)
+    else:
+        comfy_status, stats = "not_configured", {}
+    gpus = parse_gpus(stats)
+    tier = derive_tier(gpus) if comfy_status == "ok" else "board"
+
+    workflows: list[dict] = []
+    if comfy_status == "ok":
+        client = ComfyClient(comfy_url)
+        packs = load_packs(settings)
+        for pack_id in sorted(packs):
+            pack = packs[pack_id]
+            availability = await pack_availability(pack, client)
+            workflows.append(
+                {
+                    "id": pack.id,
+                    "name": pack.manifest.get("name", pack.id),
+                    "kind": pack.manifest.get("kind", "image"),
+                    "available": availability["available"],
+                    "missing_models": availability["missing_models"],
+                }
+            )
+
+    if llm_url:
+        llm_status, models = await run_in_threadpool(probe_llm, llm_url)
+    else:
+        llm_status, models = "not_configured", []
+
+    return {
+        "comfy": {"status": comfy_status, "url": comfy_url, "gpus": gpus, "tier": tier},
+        "llm": {"status": llm_status, "url": llm_url, "models": models},
+        "trainer": {"status": probe_trainer(trainer_dir), "dir": trainer_dir},
+        "ffmpeg": ffmpeg_status(),
+        "workflows": workflows,
+        "tiers": {"stills_min_vram_gb": STILLS_MIN_VRAM_GB, "video_min_vram_gb": VIDEO_MIN_VRAM_GB},
+    }
 
 
 @router.get("/health")

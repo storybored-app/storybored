@@ -179,6 +179,17 @@ Infra:
   default_video_workflow, style_loras, engine_loras, engine_models, plus
   `setup_complete` (no env twin; "1" once the first-run setup wizard finished —
   the UI stops auto-offering the wizard after that).
+- `GET /api/setup/probe` — one-shot deep probe for the setup wizard. Optional
+  query params `comfy_url` / `llm_url` / `trainer_dir` probe CANDIDATE values
+  without persisting anything (omitted → effective settings). Returns
+  `{comfy: {status, url, gpus: [{name, vram_gb|null}], tier},
+  llm: {status, url, models: [id…]}, trainer: {status, dir}, ffmpeg,
+  workflows: [{id, name, kind, available, missing_models}] (only when comfy ok),
+  tiers: {stills_min_vram_gb: 16, video_min_vram_gb: 24}}`.
+  GPU rows come straight from ComfyUI /system_stats (never invented; unknown
+  VRAM → null). `tier` ∈ board|stills|video: best-GPU VRAM rounded to whole GiB,
+  ≥24 → video (video engines + training-class), ≥16 → stills, else/no GPU/engine
+  down → board (board, script breakdown and animatic assembly still work).
   JSON-valued settings, validated on PUT: `style_loras` (list of {lora_name, strength?,
   enabled?} layered into every image render), `engine_loras` (object: pack id → list
   of baked-node overrides {node, strength?, enabled?} and/or appended {lora_name,
