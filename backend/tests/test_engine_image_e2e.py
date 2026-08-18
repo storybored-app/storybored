@@ -533,3 +533,50 @@ def test_workflows_endpoint_availability(client, fake_comfy):  # noqa: F811
     rows = {w["id"]: w for w in client.get("/api/workflows").json()}
     assert rows["krea2-basic"]["available"] is False
     assert "krea2_raw_fp8_scaled.safetensors" in rows["krea2-basic"]["missing_models"]
+
+
+NOIR_LOOK = "a rain-slicked neon alley at night, teal and sodium light, wet asphalt reflections"
+
+
+def test_continuity_appends_scene_look(client, fake_comfy):  # noqa: F811
+    project, scene, shot = make_board(client, description="a quiet hallway")
+    client.patch(f"/api/projects/{project['id']}", json={"continuity_enabled": True})
+    client.patch(f"/api/scenes/{scene['id']}", json={"look": NOIR_LOOK})
+
+    r = client.post(
+        f"/api/shots/{shot['id']}/generate", json={"workflow_id": "krea2-basic", "n_takes": 1}
+    )
+    job = wait_job(client, r.json()["job_id"])
+    assert job["status"] == "done", job
+    (pid,) = fake_comfy.state.order
+    text = fake_comfy.state.prompts[pid]["6"]["inputs"]["text"]
+    assert text == f"a quiet hallway. Scene environment: {NOIR_LOOK}"
+
+
+def test_continuity_off_leaves_prompt_alone(client, fake_comfy):  # noqa: F811
+    _, scene, shot = make_board(client, description="a quiet hallway")
+    client.patch(f"/api/scenes/{scene['id']}", json={"look": NOIR_LOOK})
+
+    r = client.post(
+        f"/api/shots/{shot['id']}/generate", json={"workflow_id": "krea2-basic", "n_takes": 1}
+    )
+    job = wait_job(client, r.json()["job_id"])
+    assert job["status"] == "done", job
+    (pid,) = fake_comfy.state.order
+    assert fake_comfy.state.prompts[pid]["6"]["inputs"]["text"] == "a quiet hallway"
+
+
+def test_continuity_skips_when_look_already_in_prompt(client, fake_comfy):  # noqa: F811
+    # story-vibes boards bake the environment into each description — no doubling
+    baked = f"a quiet hallway leading into {NOIR_LOOK}"
+    project, scene, shot = make_board(client, description=baked)
+    client.patch(f"/api/projects/{project['id']}", json={"continuity_enabled": True})
+    client.patch(f"/api/scenes/{scene['id']}", json={"look": NOIR_LOOK})
+
+    r = client.post(
+        f"/api/shots/{shot['id']}/generate", json={"workflow_id": "krea2-basic", "n_takes": 1}
+    )
+    job = wait_job(client, r.json()["job_id"])
+    assert job["status"] == "done", job
+    (pid,) = fake_comfy.state.order
+    assert fake_comfy.state.prompts[pid]["6"]["inputs"]["text"] == baked

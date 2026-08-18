@@ -26,6 +26,7 @@ import {
   FileText,
   Film,
   GripVertical,
+  Link2,
   Plus,
   Trash2,
 } from "lucide-react";
@@ -138,8 +139,10 @@ function SceneStrip({
     useSortable({ id: `scene-${scene.id}` });
   const [title, setTitle] = useState(scene.title);
   const [slugline, setSlugline] = useState(scene.slugline);
+  const [look, setLook] = useState(scene.look ?? "");
   useEffect(() => setTitle(scene.title), [scene.title]);
   useEffect(() => setSlugline(scene.slugline), [scene.slugline]);
+  useEffect(() => setLook(scene.look ?? ""), [scene.look]);
 
   const shots = scene.shots ?? [];
 
@@ -186,6 +189,16 @@ function SceneStrip({
           <Trash2 size={14} />
         </button>
       </header>
+      <div className="border-b border-line/60 px-4 py-1.5">
+        <input
+          value={look}
+          onChange={(e) => setLook(e.target.value)}
+          onBlur={() => look !== (scene.look ?? "") && onRename({ look })}
+          placeholder="Scene look — place, light, weather, palette (pinned into renders when Continuity is on)"
+          className="w-full bg-transparent text-xs text-fog placeholder:text-fog/40 focus:outline-none"
+          title="The scene's visual environment. With Continuity on, this is appended to every image render in the scene and steers Enhance."
+        />
+      </div>
       <div className="flex items-stretch gap-3 overflow-x-auto p-3">
         <SortableContext
           items={shots.map((s) => `shot-${s.id}`)}
@@ -270,6 +283,14 @@ export function BoardPage() {
   });
   const addShot = useMutation({
     mutationFn: (sceneId: number) => apiPost(`/api/scenes/${sceneId}/shots`, {}),
+    onSuccess: invalidate,
+    onError,
+  });
+  const toggleContinuity = useMutation({
+    mutationFn: () =>
+      apiPatch(`/api/projects/${projectId}`, {
+        continuity_enabled: !data?.continuity_enabled,
+      }),
     onSuccess: invalidate,
     onError,
   });
@@ -431,6 +452,18 @@ export function BoardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            onClick={() => toggleContinuity.mutate()}
+            busy={toggleContinuity.isPending}
+            title={
+              data.continuity_enabled
+                ? "Continuity is on: each scene's look is appended to every image render in that scene, and Enhance keeps wardrobe, props, and light consistent across the scene's shots. Click to turn off."
+                : "Continuity is off: renders use shot prompts alone. Click to pin each scene's look into its renders and keep shots consistent."
+            }
+          >
+            <Link2 size={14} className={data.continuity_enabled ? "text-amber-450" : ""} />{" "}
+            Continuity {data.continuity_enabled ? "on" : "off"}
+          </Button>
           <Button onClick={() => renderVideos.mutate()} busy={renderVideos.isPending}>
             <Film size={14} /> Render videos
           </Button>

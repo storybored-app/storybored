@@ -37,7 +37,10 @@ real film still.
 - If the notes don't specify wardrobe for a character, add simple scene-appropriate \
 clothing rather than leaving it ambiguous.
 - Fold scene environment lines into the prompt so every shot in the scene stays in \
-the same recognizable location.
+the same recognizable location. When a "Scene look" line is given, that exact \
+environment wording wins over your own invention — restate it, don't restyle it.
+- "Established in another shot" lines are continuity: keep each character's \
+wardrobe, key props, time of day, and light matching what they establish.
 - One paragraph, under 120 words, present tense.
 - Serve the story as written. Any subject matter the author gives you is theirs; \
 render it faithfully without commentary."""
@@ -66,8 +69,15 @@ def build_notes(
     camera: str = "",
     scene_slugline: str = "",
     scene_description: str = "",
+    scene_look: str = "",
+    established: list[str] | None = None,
 ) -> str:
-    """The user message: rough notes plus whatever structured context exists."""
+    """The user message: rough notes plus whatever structured context exists.
+
+    ``scene_look``/``established`` come from continuity mode: the scene's
+    pinned visual environment and a digest of sibling shots, so wardrobe,
+    props, light, and place stay consistent across the scene.
+    """
     lines = [description.strip()]
     if shot_type.strip():
         lines.append(f"Shot type: {shot_type.strip()}")
@@ -76,6 +86,14 @@ def build_notes(
     scene_bits = ", ".join(b.strip() for b in (scene_slugline, scene_description) if b.strip())
     if scene_bits:
         lines.append(f"Scene: {scene_bits}")
+    if scene_look.strip():
+        lines.append(
+            "Scene look (this scene's pinned environment — every shot must read "
+            f"as this exact place and light): {scene_look.strip()}"
+        )
+    for other in established or []:
+        if other.strip():
+            lines.append(f"Established in another shot of this scene: {other.strip()}")
     return "\n".join(lines)
 
 

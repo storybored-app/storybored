@@ -23,6 +23,9 @@ class Project(SQLModel, table=True):
     title: str
     description: str = ""
     aspect_ratio: str = "16:9"
+    #: continuity mode: when on, each scene's `look` is appended to every image
+    #: render prompt in that scene, and LLM passes get a continuity digest
+    continuity_enabled: bool = False
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
@@ -35,6 +38,10 @@ class Scene(SQLModel, table=True):
     title: str = ""
     slugline: str = ""
     description: str = ""
+    #: the scene's visual environment (location, light, weather, palette) —
+    #: one block of photographic language; injected into renders when the
+    #: project's continuity mode is on
+    look: str = ""
 
 
 class Shot(SQLModel, table=True):

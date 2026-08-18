@@ -11,7 +11,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from storybored.api.shots import get_shot_or_404
 from storybored.config import Settings
@@ -20,9 +20,32 @@ from storybored.llm.client import LLMError, LLMNotConfiguredError, get_llm_confi
 from storybored.llm.enhance import build_notes, enhance_description
 from storybored.llm.guides import resolve_prompt_guide
 from storybored.llm.motion import build_motion_notes, generate_motion_prompt
-from storybored.models import Scene
+from storybored.models import Project, Scene, Shot
 
 router = APIRouter(prefix="/api", tags=["enhance"])
+
+#: how many sibling-shot descriptions feed the continuity digest
+ESTABLISHED_LIMIT = 3
+
+
+def continuity_context(session, scene, shot) -> tuple[str, list[str]]:
+    """(scene_look, established sibling descriptions) when the project's
+    continuity mode is on — ("" , []) otherwise. Earlier shots in the scene
+    are preferred as the source of established wardrobe/props/light."""
+    if scene is None:
+        return "", []
+    project = session.get(Project, scene.project_id)
+    if not (project and project.continuity_enabled):
+        return "", []
+    siblings = session.exec(
+        select(Shot)
+        .where(Shot.scene_id == scene.id, Shot.id != shot.id)
+        .order_by(Shot.idx)  # type: ignore[arg-type]
+    ).all()
+    established = [
+        s.description.strip() for s in siblings if s.description.strip()
+    ][:ESTABLISHED_LIMIT]
+    return (scene.look or "").strip(), established
 
 
 class EnhanceRequest(BaseModel):
@@ -57,12 +80,15 @@ def enhance_shot(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     scene = session.get(Scene, shot.scene_id)
+    scene_look, established = continuity_context(session, scene, shot)
     notes = build_notes(
         description,
         shot_type=body.shot_type if body.shot_type is not None else shot.shot_type,
         camera=body.camera if body.camera is not None else shot.camera,
         scene_slugline=scene.slugline if scene else "",
         scene_description=scene.description if scene else "",
+        scene_look=scene_look,
+        established=established,
     )
     guide = resolve_prompt_guide(session, settings, "image", body.workflow_id)
     try:
@@ -114,6 +140,10 @@ def generate_motion(
         body.motion_prompt if body.motion_prompt is not None else shot.motion_prompt
     ) or ""
     scene = session.get(Scene, shot.scene_id)
+    scene_look, _ = continuity_context(session, scene, shot)
+    scene_description = scene.description if scene else ""
+    if scene_look:
+        scene_description = f"{scene_description} Scene look: {scene_look}".strip()
     notes = build_motion_notes(
         description,
         shot_type=body.shot_type if body.shot_type is not None else shot.shot_type,
@@ -122,7 +152,7 @@ def generate_motion(
         dialogue=body.dialogue if body.dialogue is not None else shot.dialogue,
         duration_s=shot.duration_s,
         scene_slugline=scene.slugline if scene else "",
-        scene_description=scene.description if scene else "",
+        scene_description=scene_description,
         frame_position=body.frame_position or shot.frame_position or "first",
     )
     guide = resolve_prompt_guide(session, settings, "video", body.workflow_id)

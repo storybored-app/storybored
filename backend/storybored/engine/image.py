@@ -37,7 +37,7 @@ from storybored.engine.graph import (
 )
 from storybored.jobs.registry import register
 from storybored.jobs.runner import JobCancelled
-from storybored.models import Character, Scene, Shot, Take
+from storybored.models import Character, Project, Scene, Shot, Take
 
 THUMB_PX = 384
 SEED_MAX = 2**32
@@ -136,6 +136,9 @@ async def image_gen(job, ctx):
             # cleanup path owns — a shot without its scene is a dead shot
             raise RuntimeError(f"shot {shot_id} has no parent scene — was it deleted?")
         project_id = scene.project_id
+        project = session.get(Project, project_id)
+        scene_look = (scene.look or "").strip()
+        continuity = bool(project and project.continuity_enabled) and bool(scene_look)
         refresh_shot_characters(session, shot)
         session.commit()
         handles = parse_mentions(shot.description or "")
@@ -163,6 +166,12 @@ async def image_gen(job, ctx):
     base_graph = pack.load_graph()
 
     prompt_text = str(user_params.get("prompt") or shot.description or "")
+    # Continuity mode: append the scene's look so every shot in the scene
+    # renders in the same visual environment. Deterministic (no LLM) and
+    # skipped when the prompt already carries the look (e.g. story-vibes
+    # boards that baked the environment into each description).
+    if continuity and scene_look.lower() not in prompt_text.lower():
+        prompt_text = f"{prompt_text.rstrip().rstrip('.')}. Scene environment: {scene_look}"
     prompt_text = substitute_mentions(prompt_text, by_handle)
     characters = [by_handle[h] for h in handles if h in by_handle and by_handle[h].lora_name]
 

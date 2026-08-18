@@ -79,8 +79,23 @@ Unset optional vars = feature gracefully degrades (UI shows "not configured", ne
 
 ## Data model (SQLModel; sqlite at DATA_DIR/storybored.db)
 
-- **project**: id, title, description="", aspect_ratio="16:9", created_at, updated_at
-- **scene**: id, project_id FK, idx int, title, slugline="", description=""
+- **project**: id, title, description="", aspect_ratio="16:9",
+  continuity_enabled=false (continuity mode — see below; _ADDED_COLUMNS guard),
+  created_at, updated_at
+- **scene**: id, project_id FK, idx int, title, slugline="", description="",
+  look="" (the scene's pinned visual environment — one block of photographic
+  language: place, light, weather, palette; _ADDED_COLUMNS guard)
+
+**Continuity mode** (`project.continuity_enabled`, toggle in the board header):
+with it ON and a non-empty `scene.look`, (1) every image_gen prompt in that
+scene gets `". Scene environment: {look}"` appended deterministically at render
+time — skipped when the prompt already contains the look verbatim (story-vibes
+boards bake it in), never an LLM call; (2) Enhance receives the look as a
+pinned "Scene look" line plus up to 3 sibling-shot descriptions as
+"Established in another shot" continuity lines (wardrobe/props/light lock);
+(3) generate-motion receives the look folded into its scene context. Both
+breakdown modes now also fill `scene.look` (DraftScene.look), so applied
+boards are born with a pinned environment.
 - **shot**: id, scene_id FK, idx int, description="", shot_type="" (free text: WIDE, MED, CU…),
   camera="", dialogue="", duration_s float=4.0, motion_prompt="" (for video pass),
   frame_position str="first" (first|last — whether the picked still opens or closes

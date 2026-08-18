@@ -36,6 +36,7 @@ class DraftScene(BaseModel):
 
     title: str = ""
     slugline: str = ""
+    look: str = ""
     shots: list[DraftShot] = Field(default_factory=list)
 
 
@@ -51,6 +52,7 @@ DRAFT_SCHEMA = json.dumps(
             {
                 "title": "short scene title",
                 "slugline": "INT./EXT. LOCATION - DAY/NIGHT",
+                "look": "the scene's visual environment in one sentence: place, light, weather, palette",
                 "shots": [
                     {
                         "description": "what the camera sees, one or two sentences",
@@ -72,7 +74,9 @@ You are a seasoned 1st Assistant Director breaking a script down into a shot lis
 for a storyboard. Split the script into scenes (use sluglines when present) and
 propose a concise, filmable shot list per scene: vary shot sizes, cover dialogue,
 keep descriptions visual and concrete, and estimate a duration in seconds for
-each shot (typically 2-8).
+each shot (typically 2-8). Give every scene a "look": one sentence of concrete
+photographic language pinning its visual environment — place, light source and
+quality, weather/atmosphere, palette — inferred from the script.
 
 Return ONLY a single JSON object exactly matching this schema (no code fences,
 no commentary, no trailing text):
@@ -110,6 +114,9 @@ photorealistic still — not a note. In each description:
   scene so all its shots read as the same recognizable place — describe the
   place in natural words ("a lonely desert gas station at dawn"), never by
   pasting the slugline text into the description.
+- Also fill the scene's "look" field: one sentence of concrete photographic
+  language pinning that environment (place, light source and quality, weather,
+  palette) — the same environment your shot descriptions repeat.
 - When a known character (listed below) appears, reference them inline with
   their @handle (e.g. "@ava turns from the window") — never a plain name. Keep
   the @handle token exactly as given.

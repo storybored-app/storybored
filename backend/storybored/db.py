@@ -36,6 +36,8 @@ _ADDED_COLUMNS: dict[str, dict[str, str]] = {
         "lora_family": "VARCHAR",
         "bio": "VARCHAR NOT NULL DEFAULT ''",
     },
+    "scene": {"look": "VARCHAR NOT NULL DEFAULT ''"},
+    "project": {"continuity_enabled": "BOOLEAN NOT NULL DEFAULT 0"},
 }
 
 

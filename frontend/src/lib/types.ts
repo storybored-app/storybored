@@ -22,6 +22,8 @@ export interface Project {
   title: string;
   description: string;
   aspect_ratio: string;
+  /** Continuity mode: scene looks are appended to every image render prompt. */
+  continuity_enabled?: boolean;
   created_at?: string;
   updated_at?: string;
   /** board-order thumbnail of the first picked still (list endpoint only) */
@@ -67,6 +69,8 @@ export interface Scene {
   title: string;
   slugline: string;
   description: string;
+  /** The scene's pinned visual environment — drives continuity renders. */
+  look?: string;
   shots?: Shot[];
 }
 

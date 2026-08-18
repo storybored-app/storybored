@@ -87,6 +87,7 @@ def apply_breakdown(
             idx=next_idx + offset,
             title=draft_scene.title,
             slugline=draft_scene.slugline,
+            look=draft_scene.look,
         )
         session.add(scene)
         session.flush()

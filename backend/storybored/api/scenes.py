@@ -36,6 +36,7 @@ def create_scene(
         title=body.title,
         slugline=body.slugline,
         description=body.description,
+        look=body.look,
     )
     session.add(scene)
     touch_project(session, project_id)

@@ -195,3 +195,20 @@ def test_demo_seed(client):
     assert board["title"] == "The Last Lighthouse"
     assert len(board["scenes"]) == 2
     assert sum(len(s["shots"]) for s in board["scenes"]) == 6
+
+
+def test_scene_look_and_project_continuity_roundtrip(client):
+    project = client.post("/api/projects", json={"title": "Continuity Film"}).json()
+    assert project["continuity_enabled"] is False
+
+    r = client.patch(f"/api/projects/{project['id']}", json={"continuity_enabled": True})
+    assert r.status_code == 200 and r.json()["continuity_enabled"] is True
+
+    scene = client.post(
+        f"/api/projects/{project['id']}/scenes",
+        json={"title": "One", "look": "foggy pier at dawn, pale blue light"},
+    ).json()
+    assert scene["look"] == "foggy pier at dawn, pale blue light"
+
+    r = client.patch(f"/api/scenes/{scene['id']}", json={"look": "noon sun, hard shadows"})
+    assert r.status_code == 200 and r.json()["look"] == "noon sun, hard shadows"

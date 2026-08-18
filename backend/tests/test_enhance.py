@@ -118,3 +118,46 @@ def test_clean_and_notes_helpers():
     assert _clean("<think>reasoning</think>final text") == "final text"
     notes = build_notes("desc", shot_type="WIDE", scene_slugline="EXT. ROAD - DAWN")
     assert notes == "desc\nShot type: WIDE\nScene: EXT. ROAD - DAWN"
+
+
+def test_enhance_gets_continuity_context(client, llm):
+    configure_llm(client, llm)
+    project = client.post("/api/projects", json={"title": "Noir"}).json()
+    client.patch(f"/api/projects/{project['id']}", json={"continuity_enabled": True})
+    scene = client.post(
+        f"/api/projects/{project['id']}/scenes",
+        json={"title": "Alley", "look": "rain-slicked neon alley, sodium and teal light"},
+    ).json()
+    first = client.post(
+        f"/api/scenes/{scene['id']}/shots",
+        json={"description": "@nova in a wet trench coat under the fire escape."},
+    ).json()
+    second = client.post(
+        f"/api/scenes/{scene['id']}/shots", json={"description": "@nova checks her watch."}
+    ).json()
+    assert first["idx"] < second["idx"]
+
+    llm.queue(ENHANCED)
+    r = client.post(f"/api/shots/{second['id']}/enhance")
+    assert r.status_code == 200, r.text
+    sent = llm.requests[-1]["messages"][-1]["content"]
+    assert "Scene look" in sent and "rain-slicked neon alley" in sent
+    assert "Established in another shot" in sent and "wet trench coat" in sent
+
+
+def test_enhance_no_continuity_context_when_off(client, llm):
+    configure_llm(client, llm)
+    project = client.post("/api/projects", json={"title": "Plain"}).json()
+    scene = client.post(
+        f"/api/projects/{project['id']}/scenes",
+        json={"title": "Alley", "look": "rain-slicked neon alley"},
+    ).json()
+    shot = client.post(
+        f"/api/scenes/{scene['id']}/shots", json={"description": "@nova checks her watch."}
+    ).json()
+
+    llm.queue(ENHANCED)
+    r = client.post(f"/api/shots/{shot['id']}/enhance")
+    assert r.status_code == 200, r.text
+    sent = llm.requests[-1]["messages"][-1]["content"]
+    assert "Scene look" not in sent and "Established in another shot" not in sent

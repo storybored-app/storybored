@@ -15,18 +15,21 @@ class ProjectUpdate(BaseModel):
     title: str | None = None
     description: str | None = None
     aspect_ratio: str | None = None
+    continuity_enabled: bool | None = None
 
 
 class SceneCreate(BaseModel):
     title: str = ""
     slugline: str = ""
     description: str = ""
+    look: str = ""
 
 
 class SceneUpdate(BaseModel):
     title: str | None = None
     slugline: str | None = None
     description: str | None = None
+    look: str | None = None
 
 
 class SceneReorder(BaseModel):

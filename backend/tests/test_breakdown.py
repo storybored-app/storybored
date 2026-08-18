@@ -13,6 +13,7 @@ VALID_DRAFT = {
         {
             "title": "Lamp Room",
             "slugline": "INT. LIGHTHOUSE LAMP ROOM - NIGHT",
+            "look": "cramped iron lamp room at night, one dead bulb, moonlight through salt-hazed glass",
             "shots": [
                 {
                     "description": "Wide of the lamp room, @ava silhouetted at the glass.",
@@ -186,6 +187,7 @@ def test_apply_breakdown_appends_and_links(client, app, project_id):
         assert [s.idx for s in scenes] == [0, 1]
 
         new_scene = scenes[1]
+        assert new_scene.look.startswith("cramped iron lamp room")
         shots = session.exec(
             select(Shot).where(Shot.scene_id == new_scene.id).order_by(Shot.idx)  # type: ignore[attr-defined]
         ).all()
