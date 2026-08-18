@@ -219,6 +219,13 @@ class ComfyClient:
             raise ComfyError(f"ComfyUI /upload/image returned HTTP {resp.status_code}")
         return resp.json()
 
+    async def system_stats(self) -> dict:
+        """GET /system_stats — device/VRAM info from the engine's own process."""
+        resp = await self._request("GET", "/system_stats")
+        if resp.status_code != 200:
+            raise ComfyError(f"ComfyUI /system_stats returned HTTP {resp.status_code}")
+        return resp.json()
+
     # -- model discovery ---------------------------------------------------------
 
     async def object_info(self, class_type: str | None = None) -> dict:

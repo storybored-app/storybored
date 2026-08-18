@@ -57,6 +57,54 @@ function familyConflict(pack: WorkflowManifest, cast: Character[]): boolean {
   return cast.some((c) => c.lora_family && c.lora_family !== pack.lora_family);
 }
 
+/** "~14s" / "~2m 30s" from seconds. */
+function fmtDuration(s: number): string {
+  if (s < 90) return `~${Math.round(s)}s`;
+  const m = Math.floor(s / 60);
+  const rem = Math.round(s % 60);
+  return rem ? `~${m}m ${rem}s` : `~${m}m`;
+}
+
+/** Option-label suffix: measured speed when known, else the modeled fit flag.
+ *  Measured beats modeled — a real median silences the model's worry. */
+function engineSpeedSuffix(w: WorkflowManifest): string {
+  if (w.median_render_s != null) return ` (${fmtDuration(w.median_render_s)})`;
+  if (w.fit === "tight" || w.fit === "exceeds") return " (slow on this card)";
+  return "";
+}
+
+function EngineSpeedHint({
+  workflow,
+  unit,
+}: {
+  workflow?: WorkflowManifest;
+  unit: "frame" | "clip";
+}) {
+  if (!workflow) return null;
+  if (workflow.median_render_s != null) {
+    return (
+      <p className="mt-1 text-[11px] text-fog">
+        {fmtDuration(workflow.median_render_s)} per {unit} on this machine
+        {workflow.timing_samples
+          ? ` · from ${workflow.timing_samples} render${workflow.timing_samples === 1 ? "" : "s"}`
+          : ""}
+      </p>
+    );
+  }
+  if (workflow.fit === "tight" || workflow.fit === "exceeds") {
+    return (
+      <p
+        className={`mt-1 text-[11px] leading-relaxed ${
+          workflow.fit === "exceeds" ? "text-status-failed" : "text-amber-450"
+        }`}
+      >
+        {workflow.fit_detail || "May be slow on this card."} No renders here yet.
+      </p>
+    );
+  }
+  return null;
+}
+
 interface FormState {
   description: string;
   shot_type: string;
@@ -720,9 +768,11 @@ export function ShotDrawer({
                             {familyConflict(w, cast)
                               ? " (characters not compatible)"
                               : ""}
+                            {engineSpeedSuffix(w)}
                           </option>
                         ))}
                       </Select>
+                      <EngineSpeedHint workflow={selectedImageWf} unit="frame" />
                       {selectedImageWf && familyConflict(selectedImageWf, cast) && (
                         <p className="mt-1 text-[11px] leading-relaxed text-amber-450">
                           {cast
@@ -930,9 +980,11 @@ export function ShotDrawer({
                           {w.name}
                           {w.default ? " (default)" : ""}
                           {w.available === false ? " (unavailable)" : ""}
+                          {engineSpeedSuffix(w)}
                         </option>
                       ))}
                     </Select>
+                    <EngineSpeedHint workflow={selectedVideoWf} unit="clip" />
                   </Field>
                 )}
                 <Button

@@ -247,6 +247,29 @@ function WorkflowRow({
         {(wf.loras_modified || wf.models_modified) && <Badge tone="fog">customized</Badge>}
         {wf.removable && <Badge tone="fog">imported</Badge>}
         <Badge tone="fog">{wf.kind}</Badge>
+        {wf.median_render_s != null ? (
+          <span
+            title={`Median of ${wf.timing_samples} completed render${
+              wf.timing_samples === 1 ? "" : "s"
+            } on this machine`}
+          >
+            <Badge tone="fog">
+              ~{wf.median_render_s < 90
+                ? `${Math.round(wf.median_render_s)}s`
+                : `${Math.round(wf.median_render_s / 60)}m`}
+              /{wf.kind === "video" ? "clip" : "frame"}
+            </Badge>
+          </span>
+        ) : (
+          available &&
+          (wf.fit === "tight" || wf.fit === "exceeds") && (
+            <span title={wf.fit_detail || "May be slow on this card."}>
+              <Badge tone={wf.fit === "exceeds" ? "red" : "amber"}>
+                slow on this card
+              </Badge>
+            </span>
+          )
+        )}
         {available ? (
           <Badge tone="green">ready</Badge>
         ) : unreachable ? (
@@ -259,6 +282,16 @@ function WorkflowRow({
       </button>
       {open && (
         <div className="px-11 pb-4">
+          {wf.median_render_s == null &&
+            (wf.fit === "tight" || wf.fit === "exceeds") && (
+              <p
+                className={`mb-2 text-[11px] leading-relaxed ${
+                  wf.fit === "exceeds" ? "text-status-failed/90" : "text-amber-450/80"
+                }`}
+              >
+                {wf.fit_detail || "This pack's models may not fit this card's VRAM."}
+              </p>
+            )}
           {wf.license_note && (
             <p className="mb-2 text-[11px] leading-relaxed text-amber-450/80">
               {wf.license_note}

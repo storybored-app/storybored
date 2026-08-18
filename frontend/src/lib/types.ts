@@ -211,6 +211,15 @@ export interface WorkflowManifest {
   supports_frame_position?: boolean;
   /** Image packs whose graph can take the scene plate as init image. */
   supports_plate?: boolean;
+  /** Hardware fit of the pack's model set on this engine's card. Modeled —
+   *  a measured median_render_s beats it (measured beats modeled). */
+  fit?: "ok" | "tight" | "exceeds" | "unknown";
+  /** One honest sentence when fit is tight/exceeds ("" otherwise). */
+  fit_detail?: string;
+  /** Median seconds per frame/clip from real renders on this machine. */
+  median_render_s?: number | null;
+  /** How many completed renders back that median. */
+  timing_samples?: number;
   /** Baked LoRA stack in chain order, user overrides applied. */
   loras?: EngineLoraRow[];
   /** User-appended LoRAs (from the engine_loras setting). */

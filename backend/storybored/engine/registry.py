@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from storybored.config import Settings
-from storybored.engine import catalog, families
+from storybored.engine import catalog, families, fitness
 from storybored.engine.comfy_client import ComfyClient, ComfyError
 from storybored.engine.graph import (
     LORA_CLASSES,
@@ -377,6 +377,11 @@ async def list_workflows(
         kind: (default_ids or {}).get(kind) or default_workflow_id(packs, kind)
         for kind in ("image", "video")
     }
+    # one /system_stats snapshot feeds every pack's hardware-fit verdict
+    try:
+        budget = fitness.vram_budget(await client.system_stats(), comfy_url)
+    except ComfyError:
+        budget = None
     entries: list[dict] = []
     for pack_id in sorted(packs):
         pack = packs[pack_id]
@@ -405,6 +410,22 @@ async def list_workflows(
             # scene plate (continuity mode): image packs whose graph can take
             # an init image — video packs anchor on the still instead
             "supports_plate": kind == "image" and _pack_plate_capable(pack),
+            # hardware fit: modeled peak VRAM residency vs this engine's card.
+            # Measured render timings (merged in by the API layer) beat this —
+            # the verdict headlines only for never-rendered engines.
+            **dict(
+                zip(
+                    ("fit", "fit_detail"),
+                    fitness.fit_verdict(
+                        fitness.pack_peak_bytes(
+                            effective_required_models(pack, model_overrides, overrides),
+                            file_catalog,
+                            comfy_models_dir,
+                        ),
+                        budget,
+                    ),
+                )
+            ),
             "available": availability["available"],
             "missing_models": availability["missing_models"],
             "missing_models_info": [

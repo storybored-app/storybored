@@ -37,6 +37,52 @@ from storybored.models import Job
 
 router = APIRouter(prefix="/api", tags=["workflows"])
 
+#: how many recent finished jobs per engine feed the speed median
+TIMING_WINDOW = 20
+#: render-shaped job types whose duration reflects one engine's speed
+TIMING_JOB_TYPES = ("image_gen", "video_gen", "character_thumb")
+
+
+def measured_render_timings(session: Session) -> dict[str, tuple[float, int]]:
+    """{workflow_id: (median seconds per frame/clip, sample count)} from the
+    last TIMING_WINDOW completed render jobs per engine on this machine.
+
+    image_gen durations are divided by the job's n_takes so multi-take jobs
+    contribute per-frame numbers. First-run jobs include model-load time —
+    the median absorbs that once there are a few samples, and for a single
+    sample it is still the honest answer to "how long did this take here".
+    """
+    jobs = session.exec(
+        select(Job)
+        .where(Job.status == "done", Job.type.in_(TIMING_JOB_TYPES))  # type: ignore[attr-defined]
+        .order_by(Job.id.desc())  # type: ignore[attr-defined]
+        .limit(500)
+    ).all()
+    per_engine: dict[str, list[float]] = {}
+    for job in jobs:
+        if job.started_at is None or job.finished_at is None:
+            continue
+        try:
+            payload = json.loads(job.payload_json or "{}")
+        except json.JSONDecodeError:
+            continue
+        workflow_id = str(payload.get("workflow_id") or "")
+        if not workflow_id:
+            continue
+        samples = per_engine.setdefault(workflow_id, [])
+        if len(samples) >= TIMING_WINDOW:
+            continue
+        duration = (job.finished_at - job.started_at).total_seconds()
+        frames = max(1, int(payload.get("n_takes") or 1)) if job.type == "image_gen" else 1
+        if duration > 0:
+            samples.append(duration / frames)
+    out: dict[str, tuple[float, int]] = {}
+    for workflow_id, samples in per_engine.items():
+        if samples:
+            ordered = sorted(samples)
+            out[workflow_id] = (round(ordered[len(ordered) // 2], 1), len(samples))
+    return out
+
 
 @router.get("/workflows")
 async def list_workflows(
@@ -55,7 +101,7 @@ async def list_workflows(
     }
     engine_loras = parse_engine_loras(effective_setting(session, settings, "engine_loras"))
     engine_models = parse_engine_models(effective_setting(session, settings, "engine_models"))
-    return await registry.list_workflows(
+    entries = await registry.list_workflows(
         settings,
         comfy_url,
         default_ids,
@@ -63,6 +109,14 @@ async def list_workflows(
         engine_models,
         comfy_models_dir=effective_setting(session, settings, "comfy_models_dir"),
     )
+    # measured render speed on THIS machine, from real completed jobs — the
+    # honest counterpart to the modeled `fit` (measured beats modeled)
+    timings = measured_render_timings(session)
+    for entry in entries:
+        median_s, samples = timings.get(entry["id"], (None, 0))
+        entry["median_render_s"] = median_s
+        entry["timing_samples"] = samples
+    return entries
 
 
 @router.get("/workflows/{workflow_id}/graph")

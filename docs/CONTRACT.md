@@ -111,6 +111,19 @@ Take params record plate_hold + plate_take_id for provenance. Chosen over
 reference conditioning by the 8/18 master-plate experiment (img2img @
 denoise .60–.75 won; ReferenceLatent unreliable on krea2, degenerate on
 base qwen).
+
+**Speed & hardware fit** (GET /api/workflows, per pack): `median_render_s` +
+`timing_samples` — median seconds per frame (image; job duration ÷ n_takes)
+or per clip (video) over the last 20 completed render jobs for that engine
+on this machine (image_gen/video_gen/character_thumb). `fit` ("ok" | "tight"
+| "exceeds" | "unknown") + `fit_detail` — modeled peak VRAM residency
+(engine/fitness.py: sequential-loading diffusion experts contribute their
+max, text encoders sum, unknown heavy sizes → "unknown", never a guess)
+vs a budget from ComfyUI /system_stats (total minus the smallest observed
+desktop overhead, clamped). **Precedence: measured beats modeled** — the UI
+shows the real median when one exists and headlines the fit verdict only
+for engines that have never rendered here (born from the qwen-2512
+incident: "available" yet ~45 min/frame on a desktop-sharing 32 GB card).
 - **shot**: id, scene_id FK, idx int, description="", shot_type="" (free text: WIDE, MED, CU…),
   camera="", dialogue="", duration_s float=4.0, motion_prompt="" (for video pass),
   frame_position str="first" (first|last — whether the picked still opens or closes
