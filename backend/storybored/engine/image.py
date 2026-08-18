@@ -26,12 +26,14 @@ from storybored.engine.graph import (
     apply_engine_lora_overrides,
     apply_model_overrides,
     apply_parameters,
+    apply_scene_plate,
     inject_characters,
     inject_style_loras,
     parse_engine_loras,
     parse_engine_models,
     parse_mentions,
     parse_style_loras,
+    plate_capable,
     set_filename_prefix,
     substitute_mentions,
 )
@@ -138,7 +140,28 @@ async def image_gen(job, ctx):
         project_id = scene.project_id
         project = session.get(Project, project_id)
         scene_look = (scene.look or "").strip()
-        continuity = bool(project and project.continuity_enabled) and bool(scene_look)
+        continuity_on = bool(project and project.continuity_enabled)
+        continuity = continuity_on and bool(scene_look)
+        # scene plate (continuity mode): a finished image take whose pixels
+        # anchor this render's init latent at the shot's hold strength
+        plate_bytes = None
+        plate_take_id = None
+        if continuity_on and scene.plate_take_id and (shot.plate_hold or "") in (
+            "loose",
+            "medium",
+            "tight",
+        ):
+            plate_take = session.get(Take, scene.plate_take_id)
+            if (
+                plate_take is not None
+                and plate_take.kind == "image"
+                and plate_take.status == "done"
+                and plate_take.file_path
+            ):
+                plate_path = settings.data_path / plate_take.file_path
+                if plate_path.is_file():
+                    plate_bytes = plate_path.read_bytes()
+                    plate_take_id = plate_take.id
         refresh_shot_characters(session, shot)
         session.commit()
         handles = parse_mentions(shot.description or "")
@@ -176,6 +199,17 @@ async def image_gen(job, ctx):
     characters = [by_handle[h] for h in handles if h in by_handle and by_handle[h].lora_name]
 
     client = ComfyClient(comfy_url)
+    plate_name = None
+    if plate_bytes is not None:
+        if plate_capable(base_graph):
+            uploaded = await client.upload_image(
+                plate_bytes, f"scene_plate_{shot.scene_id}_{plate_take_id}.png"
+            )
+            plate_name = uploaded.get("name")
+        else:
+            ctx.update_progress(
+                detail="scene plate skipped — this engine's graph can't take an init image"
+            )
     seed_pinned = user_params.get("seed") is not None
     done_ids: list[int] = []
     failed = 0
@@ -187,6 +221,9 @@ async def image_gen(job, ctx):
         params = dict(user_params)
         params["prompt"] = prompt_text
         params["seed"] = seed
+        if plate_name:
+            params["plate_hold"] = shot.plate_hold
+            params["plate_take_id"] = plate_take_id
 
         take = Take(
             shot_id=shot_id,
@@ -216,6 +253,8 @@ async def image_gen(job, ctx):
             inject_style_loras(
                 graph, injection, added_engine_loras(engine_loras), id_prefix="engine_lora_"
             )
+            if plate_name:
+                apply_scene_plate(graph, plate_name, shot.plate_hold)
             set_filename_prefix(graph, f"storybored/take_{take.id}")
 
             ctx.update_progress(progress=i / n_takes, detail=f"{label}: submitting")

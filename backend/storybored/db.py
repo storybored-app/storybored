@@ -28,7 +28,6 @@ def create_db_engine(settings: Settings):
 #: columns added after v1 — create_all() never alters existing tables, so new
 #: columns get a one-shot ADD COLUMN guard here (SQLite has no real migrations)
 _ADDED_COLUMNS: dict[str, dict[str, str]] = {
-    "shot": {"frame_position": "VARCHAR NOT NULL DEFAULT 'first'"},
     "job": {"project_id": "INTEGER"},
     # nullable on purpose: existing characters have an unknown family and must
     # never start failing compatibility checks after an upgrade
@@ -36,7 +35,14 @@ _ADDED_COLUMNS: dict[str, dict[str, str]] = {
         "lora_family": "VARCHAR",
         "bio": "VARCHAR NOT NULL DEFAULT ''",
     },
-    "scene": {"look": "VARCHAR NOT NULL DEFAULT ''"},
+    "scene": {
+        "look": "VARCHAR NOT NULL DEFAULT ''",
+        "plate_take_id": "INTEGER",
+    },
+    "shot": {
+        "frame_position": "VARCHAR NOT NULL DEFAULT 'first'",
+        "plate_hold": "VARCHAR NOT NULL DEFAULT ''",
+    },
     "project": {"continuity_enabled": "BOOLEAN NOT NULL DEFAULT 0"},
 }
 

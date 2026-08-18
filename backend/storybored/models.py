@@ -42,6 +42,10 @@ class Scene(SQLModel, table=True):
     #: one block of photographic language; injected into renders when the
     #: project's continuity mode is on
     look: str = ""
+    #: the scene's master plate: a finished image take whose geometry anchors
+    #: other shots in the scene (plate-as-init img2img). Plain int on purpose —
+    #: a deleted take must degrade to "no plate", never block deletion.
+    plate_take_id: int | None = None
 
 
 class Shot(SQLModel, table=True):
@@ -56,6 +60,9 @@ class Shot(SQLModel, table=True):
     duration_s: float = 4.0
     motion_prompt: str = ""  # for the video pass
     frame_position: str = "first"  # first | last — where the still anchors the clip
+    #: how hard this shot's render holds to the scene plate (continuity mode):
+    #: "" = off | loose (denoise .90) | medium (.75) | tight (.60)
+    plate_hold: str = ""
     status: str = "draft"  # draft | queued | generated | approved
     picked_take_id: int | None = None
     video_take_id: int | None = None

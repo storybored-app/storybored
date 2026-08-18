@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Image as ImageIcon,
   Minus,
+  Pin,
   Play,
   Plus,
   Sparkles,
@@ -64,6 +65,7 @@ interface FormState {
   duration_s: string;
   motion_prompt: string;
   frame_position: string;
+  plate_hold: string;
 }
 
 function formFromShot(s: Shot): FormState {
@@ -75,6 +77,7 @@ function formFromShot(s: Shot): FormState {
     duration_s: String(s.duration_s ?? 4),
     motion_prompt: s.motion_prompt ?? "",
     frame_position: s.frame_position === "last" ? "last" : "first",
+    plate_hold: s.plate_hold ?? "",
   };
 }
 
@@ -87,6 +90,7 @@ function diffForm(form: FormState, shot: Shot): Record<string, unknown> {
   if (form.motion_prompt !== (shot.motion_prompt ?? "")) patch.motion_prompt = form.motion_prompt;
   if (form.frame_position !== (shot.frame_position === "last" ? "last" : "first"))
     patch.frame_position = form.frame_position;
+  if (form.plate_hold !== (shot.plate_hold ?? "")) patch.plate_hold = form.plate_hold;
   const dur = parseFloat(form.duration_s);
   if (Number.isFinite(dur) && dur > 0 && dur !== shot.duration_s) patch.duration_s = dur;
   return patch;
@@ -164,15 +168,19 @@ function buildParams(
 function TakeTile({
   take,
   picked,
+  isPlate,
   onOpen,
   onPick,
   onDelete,
+  onSetPlate,
 }: {
   take: Take;
   picked: boolean;
+  isPlate?: boolean;
   onOpen: () => void;
   onPick: () => void;
   onDelete: () => void;
+  onSetPlate?: () => void;
 }) {
   const url = mediaUrl(take.thumb_path ?? take.file_path);
   return (
@@ -208,6 +216,14 @@ function TakeTile({
           <Star size={11} className="fill-amber-450 text-amber-450" />
         </span>
       )}
+      {isPlate && (
+        <span
+          className="absolute right-1 top-1 flex items-center gap-0.5 rounded bg-ink-950/80 px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide text-amber-450"
+          title="This take is the scene's plate — shots with a plate hold anchor their renders to it"
+        >
+          <Pin size={9} /> plate
+        </span>
+      )}
       {take.status === "done" && (
         <div className="absolute inset-x-0 bottom-0 flex justify-end gap-1 bg-gradient-to-t from-ink-950/90 to-transparent p-1 opacity-0 transition-opacity group-hover:opacity-100">
           {!picked && (
@@ -220,6 +236,18 @@ function TakeTile({
               title="Pick this take"
             >
               <Star size={12} />
+            </button>
+          )}
+          {onSetPlate && !isPlate && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSetPlate();
+              }}
+              className="rounded bg-ink-850/90 p-1 text-mist hover:text-amber-450"
+              title="Use as scene plate — other shots in this scene can anchor their renders to this frame"
+            >
+              <Pin size={12} />
             </button>
           )}
           <button
@@ -262,11 +290,13 @@ export function ShotDrawer({
     for (let i = 0; i < (board.scenes ?? []).length; i++) {
       const shots = board.scenes![i].shots ?? [];
       const j = shots.findIndex((s) => s.id === shotId);
-      if (j !== -1) return { shot: shots[j], label: shotLabel(i, j) };
+      if (j !== -1)
+        return { shot: shots[j], scene: board.scenes![i], label: shotLabel(i, j) };
     }
     return null;
   }, [board, shotId]);
   const shot = located?.shot;
+  const scene = located?.scene;
 
   const { data: takes } = useQuery<Take[]>({
     queryKey: ["takes", shotId],
@@ -442,6 +472,19 @@ export function ShotDrawer({
   const pick = useMutation({
     mutationFn: (takeId: number) => apiPost(`/api/takes/${takeId}/pick`),
     onSuccess: invalidateAll,
+    onError: (e: Error) => toast(e.message, "error"),
+  });
+
+  const setPlate = useMutation({
+    mutationFn: (takeId: number) =>
+      apiPatch(`/api/scenes/${scene!.id}`, { plate_take_id: takeId }),
+    onSuccess: () => {
+      toast(
+        "Scene plate set — shots in this scene can anchor their renders to it with a plate hold.",
+        "success",
+      );
+      invalidateAll();
+    },
     onError: (e: Error) => toast(e.message, "error"),
   });
 
@@ -709,6 +752,26 @@ export function ShotDrawer({
                       values={paramValues}
                       onChange={(k, v) => setParamValues((p) => ({ ...p, [k]: v }))}
                     />
+                    {board.continuity_enabled &&
+                      scene?.plate_take_id != null &&
+                      selectedImageWf?.supports_plate && (
+                        <Field label="Plate hold">
+                          <Select
+                            value={form.plate_hold}
+                            onChange={(e) =>
+                              setForm((f) =>
+                                f ? { ...f, plate_hold: e.target.value } : f,
+                              )
+                            }
+                            title="How hard renders anchor to the scene plate's geometry. Tight inherits the plate's framing too — best for wides and re-establishes; medium keeps your framing while structures and palette hold."
+                          >
+                            <option value="">Off — prompt only</option>
+                            <option value="loose">Loose — palette & mood</option>
+                            <option value="medium">Medium — structures hold</option>
+                            <option value="tight">Tight — same framing</option>
+                          </Select>
+                        </Field>
+                      )}
                     <div className="flex items-center gap-3">
                       <div className="flex items-center rounded-md border border-line">
                         <button
@@ -756,9 +819,15 @@ export function ShotDrawer({
                           key={t.id}
                           take={t}
                           picked={shot.picked_take_id === t.id}
+                          isPlate={scene?.plate_take_id === t.id}
                           onOpen={() => setLightboxIdx(imageTakes.findIndex((x) => x.id === t.id))}
                           onPick={() => pick.mutate(t.id)}
                           onDelete={() => deleteTake.mutate(t.id)}
+                          onSetPlate={
+                            board.continuity_enabled && t.status === "done"
+                              ? () => setPlate.mutate(t.id)
+                              : undefined
+                          }
                         />
                       ))}
                     </div>

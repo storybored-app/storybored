@@ -96,6 +96,21 @@ pinned "Scene look" line plus up to 3 sibling-shot descriptions as
 (3) generate-motion receives the look folded into its scene context. Both
 breakdown modes now also fill `scene.look` (DraftScene.look), so applied
 boards are born with a pinned environment.
+
+**Scene plate** (continuity mode's pixel layer): `scene.plate_take_id` (a
+finished image take from the scene, validated on PATCH; plain int — deleting
+the take degrades to "no plate") + `shot.plate_hold` ("" | loose | medium |
+tight → denoise .90/.75/.60). With continuity ON, a plate set, and a hold on
+the shot, image_gen uploads the plate to ComfyUI and rewires the sampler:
+LoadImage → ImageScale(empty-latent size, center-crop) → VAEEncode →
+sampler.latent_image + denoise (engine/graph.py `apply_scene_plate`). Only on
+packs whose graph has a sampler with positive+latent_image+denoise AND a
+VAEDecode (`plate_capable`); `supports_plate` is reported per pack by
+GET /api/workflows (video packs always false — they anchor on the still).
+Take params record plate_hold + plate_take_id for provenance. Chosen over
+reference conditioning by the 8/18 master-plate experiment (img2img @
+denoise .60–.75 won; ReferenceLatent unreliable on krea2, degenerate on
+base qwen).
 - **shot**: id, scene_id FK, idx int, description="", shot_type="" (free text: WIDE, MED, CU…),
   camera="", dialogue="", duration_s float=4.0, motion_prompt="" (for video pass),
   frame_position str="first" (first|last — whether the picked still opens or closes

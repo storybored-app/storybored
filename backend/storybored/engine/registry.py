@@ -23,7 +23,12 @@ from typing import Any
 from storybored.config import Settings
 from storybored.engine import catalog, families
 from storybored.engine.comfy_client import ComfyClient, ComfyError
-from storybored.engine.graph import LORA_CLASSES, lora_chain, lora_injection_spec
+from storybored.engine.graph import (
+    LORA_CLASSES,
+    lora_chain,
+    lora_injection_spec,
+    plate_capable,
+)
 
 log = logging.getLogger("storybored.engine")
 
@@ -300,6 +305,14 @@ async def pack_model_slots(
     return rows
 
 
+def _pack_plate_capable(pack: WorkflowPack) -> bool:
+    """plate_capable() over the pack's graph, never raising on a broken file."""
+    try:
+        return plate_capable(pack.load_graph())
+    except (OSError, ValueError):
+        return False
+
+
 def pack_lora_stack(pack: WorkflowPack, overrides: list[dict]) -> tuple[list[dict], list[dict]]:
     """(baked stack with overrides applied, added entries) for the UI.
 
@@ -389,6 +402,9 @@ async def list_workflows(
             "supports_characters": bool(manifest.get("character_injection")),
             "supports_loras": bool(lora_injection_spec(manifest)),
             "supports_frame_position": bool(manifest.get("frame_conditioning")),
+            # scene plate (continuity mode): image packs whose graph can take
+            # an init image — video packs anchor on the still instead
+            "supports_plate": kind == "image" and _pack_plate_capable(pack),
             "available": availability["available"],
             "missing_models": availability["missing_models"],
             "missing_models_info": [

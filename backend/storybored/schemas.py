@@ -30,6 +30,8 @@ class SceneUpdate(BaseModel):
     slugline: str | None = None
     description: str | None = None
     look: str | None = None
+    #: master plate: a finished image take from this scene (0/null clears)
+    plate_take_id: int | None = None
 
 
 class SceneReorder(BaseModel):
@@ -53,6 +55,8 @@ class ShotUpdate(BaseModel):
     duration_s: float | None = None
     motion_prompt: str | None = None
     frame_position: Literal["first", "last"] | None = None
+    #: hold-to-scene-plate strength ("" = off)
+    plate_hold: Literal["", "loose", "medium", "tight"] | None = None
 
 
 class ShotReorder(BaseModel):

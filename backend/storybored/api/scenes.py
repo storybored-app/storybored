@@ -71,7 +71,24 @@ def reorder_scenes(
 @router.patch("/scenes/{scene_id}")
 def update_scene(scene_id: int, body: SceneUpdate, session: Session = Depends(get_session)):
     scene = get_scene_or_404(session, scene_id)
-    for key, value in body.model_dump(exclude_unset=True).items():
+    changes = body.model_dump(exclude_unset=True)
+    if changes.get("plate_take_id"):
+        take = session.get(Take, changes["plate_take_id"])
+        shot = session.get(Shot, take.shot_id) if take else None
+        if (
+            take is None
+            or take.kind != "image"
+            or take.status != "done"
+            or shot is None
+            or shot.scene_id != scene_id
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="scene plate must be a finished image take from this scene",
+            )
+    elif "plate_take_id" in changes:
+        changes["plate_take_id"] = None  # 0/null both clear the plate
+    for key, value in changes.items():
         setattr(scene, key, value)
     session.add(scene)
     touch_project(session, scene.project_id)

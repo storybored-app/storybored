@@ -417,3 +417,67 @@ def set_filename_prefix(graph: dict, prefix: str) -> None:
     for node in graph.values():
         if node.get("class_type") in _SAVE_CLASSES:
             node.setdefault("inputs", {})["filename_prefix"] = prefix
+
+
+#: hold-to-plate strengths: how much of the render is re-imagined vs anchored
+PLATE_DENOISE = {"loose": 0.90, "medium": 0.75, "tight": 0.60}
+
+
+def plate_capable(graph: Mapping[str, Any]) -> bool:
+    """True when the graph can take a scene plate as its init latent: a sampler
+    with positive + latent_image + denoise inputs, and a VAE to encode through
+    (sourced from the graph's own VAEDecode)."""
+    has_vae = any(n.get("class_type") == "VAEDecode" for n in graph.values())
+    return has_vae and any(
+        {"positive", "latent_image", "denoise"} <= set(n.get("inputs", {}))
+        for n in graph.values()
+    )
+
+
+def apply_scene_plate(graph: dict, plate_image: str, hold: str) -> bool:
+    """Anchor the render to the scene plate: encode the uploaded plate image
+    into the sampler's init latent at the hold strength's denoise. Returns
+    False (graph untouched) when the graph lacks the required shape."""
+    denoise = PLATE_DENOISE.get(hold)
+    if denoise is None:
+        return False
+    sampler_id = next(
+        (
+            nid
+            for nid, n in graph.items()
+            if {"positive", "latent_image", "denoise"} <= set(n.get("inputs", {}))
+        ),
+        None,
+    )
+    vae_ref = next(
+        (
+            n["inputs"]["vae"]
+            for n in graph.values()
+            if n.get("class_type") == "VAEDecode" and "vae" in n.get("inputs", {})
+        ),
+        None,
+    )
+    if sampler_id is None or vae_ref is None:
+        return False
+    # match the empty-latent size so the encode never fights the target aspect
+    empty = graph.get(str(graph[sampler_id]["inputs"]["latent_image"][0]), {})
+    width = empty.get("inputs", {}).get("width", 1024)
+    height = empty.get("inputs", {}).get("height", 1024)
+    graph["scene_plate_img"] = {"class_type": "LoadImage", "inputs": {"image": plate_image}}
+    graph["scene_plate_scaled"] = {
+        "class_type": "ImageScale",
+        "inputs": {
+            "image": ["scene_plate_img", 0],
+            "upscale_method": "lanczos",
+            "width": width,
+            "height": height,
+            "crop": "center",
+        },
+    }
+    graph["scene_plate_latent"] = {
+        "class_type": "VAEEncode",
+        "inputs": {"pixels": ["scene_plate_scaled", 0], "vae": vae_ref},
+    }
+    graph[sampler_id]["inputs"]["latent_image"] = ["scene_plate_latent", 0]
+    graph[sampler_id]["inputs"]["denoise"] = denoise
+    return True

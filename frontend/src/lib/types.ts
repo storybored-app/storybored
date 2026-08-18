@@ -56,6 +56,8 @@ export interface Shot {
   motion_prompt: string;
   /** Where the picked still anchors the video clip: "first" | "last". */
   frame_position?: string;
+  /** Hold-to-scene-plate strength: "" off | loose | medium | tight. */
+  plate_hold?: string;
   status: ShotStatus;
   picked_take_id?: number | null;
   video_take_id?: number | null;
@@ -71,6 +73,8 @@ export interface Scene {
   description: string;
   /** The scene's pinned visual environment — drives continuity renders. */
   look?: string;
+  /** Master-plate take id — anchors continuity renders in this scene. */
+  plate_take_id?: number | null;
   shots?: Shot[];
 }
 
@@ -205,6 +209,8 @@ export interface WorkflowManifest {
   supports_loras?: boolean;
   /** True when the still can anchor the END of the clip (video packs). */
   supports_frame_position?: boolean;
+  /** Image packs whose graph can take the scene plate as init image. */
+  supports_plate?: boolean;
   /** Baked LoRA stack in chain order, user overrides applied. */
   loras?: EngineLoraRow[];
   /** User-appended LoRAs (from the engine_loras setting). */

@@ -580,3 +580,85 @@ def test_continuity_skips_when_look_already_in_prompt(client, fake_comfy):  # no
     assert job["status"] == "done", job
     (pid,) = fake_comfy.state.order
     assert fake_comfy.state.prompts[pid]["6"]["inputs"]["text"] == baked
+
+
+def _first_done_take(client, shot_id):
+    r = client.post(f"/api/shots/{shot_id}/generate", json={"workflow_id": "krea2-basic", "n_takes": 1})
+    job = wait_job(client, r.json()["job_id"])
+    assert job["status"] == "done", job
+    return client.get(f"/api/shots/{shot_id}/takes").json()[0]
+
+
+def test_scene_plate_anchors_render(client, fake_comfy):  # noqa: F811
+    project, scene, shot = make_board(client, description="a quiet hallway")
+    client.patch(f"/api/projects/{project['id']}", json={"continuity_enabled": True})
+    plate = _first_done_take(client, shot["id"])
+
+    r = client.patch(f"/api/scenes/{scene['id']}", json={"plate_take_id": plate["id"]})
+    assert r.status_code == 200 and r.json()["plate_take_id"] == plate["id"]
+    r = client.patch(f"/api/shots/{shot['id']}", json={"plate_hold": "medium"})
+    assert r.status_code == 200
+
+    r = client.post(f"/api/shots/{shot['id']}/generate", json={"workflow_id": "krea2-basic", "n_takes": 1})
+    job = wait_job(client, r.json()["job_id"])
+    assert job["status"] == "done", job
+
+    prompt_id = fake_comfy.state.order[-1]
+    graph = fake_comfy.state.prompts[prompt_id]
+    sampler = graph["3"]
+    assert sampler["inputs"]["latent_image"] == ["scene_plate_latent", 0]
+    assert sampler["inputs"]["denoise"] == 0.75
+    assert graph["scene_plate_latent"]["class_type"] == "VAEEncode"
+    assert graph["scene_plate_img"]["class_type"] == "LoadImage"
+    # provenance recorded on the take
+    take = client.get(f"/api/shots/{shot['id']}/takes").json()[-1]
+    params = json.loads(take["params_json"])
+    assert params["plate_hold"] == "medium" and params["plate_take_id"] == plate["id"]
+
+
+def test_scene_plate_off_without_hold_or_continuity(client, fake_comfy):  # noqa: F811
+    project, scene, shot = make_board(client, description="a quiet hallway")
+    client.patch(f"/api/projects/{project['id']}", json={"continuity_enabled": True})
+    plate = _first_done_take(client, shot["id"])
+    client.patch(f"/api/scenes/{scene['id']}", json={"plate_take_id": plate["id"]})
+
+    # hold unset → plate untouched
+    r = client.post(f"/api/shots/{shot['id']}/generate", json={"workflow_id": "krea2-basic", "n_takes": 1})
+    job = wait_job(client, r.json()["job_id"])
+    assert job["status"] == "done", job
+    graph = fake_comfy.state.prompts[fake_comfy.state.order[-1]]
+    assert "scene_plate_latent" not in graph
+    assert graph["3"]["inputs"]["latent_image"] != ["scene_plate_latent", 0]
+
+    # continuity off → plate untouched even with hold set
+    client.patch(f"/api/shots/{shot['id']}", json={"plate_hold": "tight"})
+    client.patch(f"/api/projects/{project['id']}", json={"continuity_enabled": False})
+    r = client.post(f"/api/shots/{shot['id']}/generate", json={"workflow_id": "krea2-basic", "n_takes": 1})
+    job = wait_job(client, r.json()["job_id"])
+    assert job["status"] == "done", job
+    graph = fake_comfy.state.prompts[fake_comfy.state.order[-1]]
+    assert "scene_plate_latent" not in graph
+
+
+def test_scene_plate_validation(client, fake_comfy):  # noqa: F811
+    project, scene, shot = make_board(client)
+    other_project, other_scene, other_shot = make_board(client, description="elsewhere")
+    foreign = _first_done_take(client, other_shot["id"])
+
+    # a take from another scene is rejected
+    r = client.patch(f"/api/scenes/{scene['id']}", json={"plate_take_id": foreign["id"]})
+    assert r.status_code == 400
+    # unknown take id is rejected
+    r = client.patch(f"/api/scenes/{scene['id']}", json={"plate_take_id": 99999})
+    assert r.status_code == 400
+    # null clears
+    own = _first_done_take(client, shot["id"])
+    client.patch(f"/api/scenes/{scene['id']}", json={"plate_take_id": own["id"]})
+    r = client.patch(f"/api/scenes/{scene['id']}", json={"plate_take_id": None})
+    assert r.status_code == 200 and r.json()["plate_take_id"] is None
+
+
+def test_workflows_report_plate_support(client, fake_comfy):  # noqa: F811
+    flags = {w["id"]: w["supports_plate"] for w in client.get("/api/workflows").json()}
+    assert flags["krea2-basic"] is True and flags["krea2-realism"] is True
+    assert flags["minimax-h3-i2v"] is False  # video packs anchor on the still
