@@ -27,8 +27,11 @@ from storybored.engine.catalog import FOLDER_ALIASES, LOADER_FOLDERS
 #: text encoder resident beside the UNET.
 _SEQUENTIAL_FOLDERS = {"diffusion_models", "checkpoints"}
 
-#: verdicts, in order of decreasing comfort
+#: verdicts, in order of decreasing comfort. "streams" is the offload-friendly
+#: middle truth: the pack is engineered to stream layers through smaller cards
+#: — it works, just slower — which is a different fact than "will thrash".
 FIT_OK = "ok"
+FIT_STREAMS = "streams"
 FIT_TIGHT = "tight"
 FIT_EXCEEDS = "exceeds"
 FIT_UNKNOWN = "unknown"
@@ -68,19 +71,22 @@ def file_size_bytes(
     return size if isinstance(size, int) and size > 0 else None
 
 
-def pack_peak_bytes(
+def pack_size_profile(
     required_models: Mapping[str, list[str]],
     catalog: Mapping[str, Mapping],
     comfy_models_dir: str = "",
-) -> int | None:
-    """Modeled peak VRAM residency of a pack's effective model set.
+) -> tuple[int, int] | None:
+    """(peak co-resident bytes, largest single file) of a pack's model set.
 
-    None when any diffusion/text-encoder size is unknown — those dominate the
-    total, so a guess would be worse than admitting ignorance. Unknown VAE or
-    LoRA sizes degrade to 0 (they're small; an honest slight undercount).
+    Peak drives the normal verdict; the largest single file is the streaming
+    floor an offload-friendly pack is judged by. None when any diffusion/
+    text-encoder size is unknown — those dominate the total, so a guess would
+    be worse than admitting ignorance. Unknown VAE or LoRA sizes degrade to 0
+    (they're small; an honest slight undercount).
     """
     sequential_max = 0
     resident_sum = 0
+    largest = 0
     for spec, files in required_models.items():
         class_type = str(spec).partition(".")[0]
         folder = LOADER_FOLDERS.get(class_type, "")
@@ -96,9 +102,10 @@ def pack_peak_bytes(
                 resident_sum += size
             else:
                 resident_sum += size or 0
+            largest = max(largest, size or 0)
     if sequential_max == 0 and resident_sum == 0:
         return None
-    return sequential_max + resident_sum
+    return sequential_max + resident_sum, largest
 
 
 def vram_budget(system_stats: Mapping | None, base_url: str = "") -> tuple[int, int] | None:
@@ -138,13 +145,32 @@ def vram_budget(system_stats: Mapping | None, base_url: str = "") -> tuple[int, 
     return total, max(0, total - overhead)
 
 
-def fit_verdict(peak: int | None, budget: tuple[int, int] | None) -> tuple[str, str]:
-    """(fit, fit_detail): a verdict plus one honest sentence for the UI."""
-    if peak is None or budget is None:
+def fit_verdict(
+    profile: tuple[int, int] | None,
+    budget: tuple[int, int] | None,
+    offload_friendly: bool = False,
+) -> tuple[str, str]:
+    """(fit, fit_detail): a verdict plus one honest sentence for the UI.
+
+    Offload-friendly packs (manifest ``offload_friendly: true``) are judged
+    by their largest single file — the streaming floor — and never "exceed":
+    they are engineered to stream layers through smaller cards, which is a
+    different fact than "will thrash". They come back "ok" or "streams".
+    """
+    if profile is None or budget is None:
         return FIT_UNKNOWN, ""
+    peak, largest = profile
     total, usable = budget
-    peak_gb = peak / 2**30
     usable_gb = usable / 2**30
+    if offload_friendly:
+        if largest <= usable * 0.90:
+            return FIT_OK, ""
+        return FIT_STREAMS, (
+            f"~{largest / 2**30:.0f} GB largest model vs ~{usable_gb:.0f} GB usable "
+            "VRAM — this pack streams layers by design: it works on this card, "
+            "just slower than on a bigger one"
+        )
+    peak_gb = peak / 2**30
     if peak <= usable * 0.90:
         return FIT_OK, ""
     if peak <= total:

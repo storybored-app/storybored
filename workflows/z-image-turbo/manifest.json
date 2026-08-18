@@ -2,6 +2,7 @@
   "id": "z-image-turbo",
   "name": "Z-Image Turbo",
   "kind": "image",
+  "offload_friendly": true,
   "lora_family": "z-image",
   "description": "Z-Image Turbo (Alibaba Tongyi, 6B, Apache 2.0): photoreal stills in 8 steps from a 6.2 GB int8 build — the recommended engine for 6–12 GB cards, and the fastest stills engine at any size. Keep cfg at 1.0; the model is sampler-sensitive.",
   "graph": "graph.json",

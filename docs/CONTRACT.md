@@ -115,12 +115,16 @@ base qwen).
 **Speed & hardware fit** (GET /api/workflows, per pack): `median_render_s` +
 `timing_samples` — median seconds per frame (image; job duration ÷ n_takes)
 or per clip (video) over the last 20 completed render jobs for that engine
-on this machine (image_gen/video_gen/character_thumb). `fit` ("ok" | "tight"
+on this machine (image_gen/video_gen/character_thumb). `fit` ("ok" | "streams" | "tight"
 | "exceeds" | "unknown") + `fit_detail` — modeled peak VRAM residency
 (engine/fitness.py: sequential-loading diffusion experts contribute their
 max, text encoders sum, unknown heavy sizes → "unknown", never a guess)
 vs a budget from ComfyUI /system_stats (total minus the smallest observed
-desktop overhead, clamped). **Precedence: measured beats modeled** — the UI
+desktop overhead, clamped). Packs with manifest `offload_friendly: true`
+(z-image-turbo, wan22-ti2v-5b — engineered for ComfyUI's native layer
+offloading) are judged by their largest single file instead of the
+co-resident peak and never "exceed": they come back "ok" or "streams"
+(informational, not a warning — works on this card, just slower). **Precedence: measured beats modeled** — the UI
 shows the real median when one exists and headlines the fit verdict only
 for engines that have never rendered here (born from the qwen-2512
 incident: "available" yet ~45 min/frame on a desktop-sharing 32 GB card).

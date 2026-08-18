@@ -37,26 +37,27 @@ CATALOG = {
 }
 
 
-def test_peak_sums_residents_but_maxes_sequential_experts():
+def test_profile_sums_residents_but_maxes_sequential_experts():
     required = {
         "UNETLoader.unet_name": ["expert-a.safetensors", "expert-b.safetensors"],
         "CLIPLoader.clip_name": ["encoder.safetensors"],
         "VAELoader.vae_name": ["vae.safetensors"],
         "LoraLoader.lora_name": ["style.safetensors"],
     }
-    # experts swap (max 14), encoder+vae+lora co-resident (+11) → 25 GB
-    assert fitness.pack_peak_bytes(required, CATALOG) == 25 * GB
+    # experts swap (max 14), encoder+vae+lora co-resident (+11) → 25 GB peak;
+    # largest single file = one 14 GB expert (the streaming floor)
+    assert fitness.pack_size_profile(required, CATALOG) == (25 * GB, 14 * GB)
 
 
-def test_peak_admits_ignorance_on_unknown_heavy_files():
+def test_profile_admits_ignorance_on_unknown_heavy_files():
     required = {"UNETLoader.unet_name": ["mystery.safetensors"]}
-    assert fitness.pack_peak_bytes(required, CATALOG) is None
+    assert fitness.pack_size_profile(required, CATALOG) is None
     # unknown VAE degrades to 0 instead of poisoning the estimate
     required = {
         "UNETLoader.unet_name": ["big-unet.safetensors"],
         "VAELoader.vae_name": ["mystery-vae.safetensors"],
     }
-    assert fitness.pack_peak_bytes(required, CATALOG) == 20 * GB
+    assert fitness.pack_size_profile(required, CATALOG) == (20 * GB, 20 * GB)
 
 
 def test_vram_budget_reads_biggest_device_and_clamps_overhead():
@@ -77,16 +78,32 @@ def test_vram_budget_reads_biggest_device_and_clamps_overhead():
 
 def test_fit_verdicts():
     budget = (32 * GB, 29 * GB)
-    ok, detail = fitness.fit_verdict(12 * GB, budget)
+    ok, detail = fitness.fit_verdict((12 * GB, 8 * GB), budget)
     assert ok == "ok" and detail == ""
-    tight, detail = fitness.fit_verdict(30 * GB, budget)  # the qwen-2512 case
+    tight, detail = fitness.fit_verdict((30 * GB, 20 * GB), budget)  # the qwen-2512 case
     assert tight == "tight" and "paging" in detail
-    exceeds, detail = fitness.fit_verdict(40 * GB, budget)
+    exceeds, detail = fitness.fit_verdict((40 * GB, 20 * GB), budget)
     assert exceeds == "exceeds" and "exceed" in detail
     unknown, _ = fitness.fit_verdict(None, budget)
     assert unknown == "unknown"
-    unknown, _ = fitness.fit_verdict(12 * GB, None)
+    unknown, _ = fitness.fit_verdict((12 * GB, 8 * GB), None)
     assert unknown == "unknown"
+
+
+def test_offload_friendly_streams_instead_of_warning():
+    # the 8 GB card that started this: z-image-shaped pack (12 GB peak,
+    # 6 GB largest file) must read "ok" — it is the tier's recommendation
+    budget_8gb = (8 * GB, 7 * GB)
+    ok, detail = fitness.fit_verdict((12 * GB, 6 * GB), budget_8gb, offload_friendly=True)
+    assert ok == "ok" and detail == ""
+    # wan-5b-shaped (10 GB largest) streams — informational, never "exceeds"
+    streams, detail = fitness.fit_verdict(
+        (18 * GB, 10 * GB), budget_8gb, offload_friendly=True
+    )
+    assert streams == "streams" and "streams layers" in detail
+    # without the flag the same profile is an honest hard warning
+    exceeds, _ = fitness.fit_verdict((18 * GB, 10 * GB), budget_8gb)
+    assert exceeds == "exceeds"
 
 
 def test_workflows_surface_fit_and_timings(client, fake_comfy, settings):  # noqa: F811
@@ -96,7 +113,7 @@ def test_workflows_surface_fit_and_timings(client, fake_comfy, settings):  # noq
     ]
     rows = {w["id"]: w for w in client.get("/api/workflows").json()}
     for row in rows.values():
-        assert row["fit"] in ("ok", "tight", "exceeds", "unknown")
+        assert row["fit"] in ("ok", "streams", "tight", "exceeds", "unknown")
         assert row["median_render_s"] is None and row["timing_samples"] == 0
 
     # render two takes → krea2-basic gains a measured per-frame median

@@ -2,6 +2,7 @@
   "id": "wan22-ti2v-5b",
   "name": "Wan 2.2 — 5B Image to Video",
   "kind": "video",
+  "offload_friendly": true,
   "description": "Wan 2.2 TI2V-5B (fp16, Apache 2.0): animates an approved still into a ~5 s silent clip at 720p/24 fps. The lightest video engine — fits 8 GB-class cards with ComfyUI's native offloading. 20-step uni_pc sampling; no audio is generated.",
   "graph": "graph.json",
   "parameters": [

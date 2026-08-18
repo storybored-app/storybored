@@ -260,13 +260,17 @@ function WorkflowRow({
               /{wf.kind === "video" ? "clip" : "frame"}
             </Badge>
           </span>
+        ) : available && (wf.fit === "tight" || wf.fit === "exceeds") ? (
+          <span title={wf.fit_detail || "May be slow on this card."}>
+            <Badge tone={wf.fit === "exceeds" ? "red" : "amber"}>
+              slow on this card
+            </Badge>
+          </span>
         ) : (
           available &&
-          (wf.fit === "tight" || wf.fit === "exceeds") && (
-            <span title={wf.fit_detail || "May be slow on this card."}>
-              <Badge tone={wf.fit === "exceeds" ? "red" : "amber"}>
-                slow on this card
-              </Badge>
+          wf.fit === "streams" && (
+            <span title={wf.fit_detail || "Streams layers on this card — works, just slower."}>
+              <Badge tone="fog">streams on this card</Badge>
             </span>
           )
         )}
@@ -283,10 +287,14 @@ function WorkflowRow({
       {open && (
         <div className="px-11 pb-4">
           {wf.median_render_s == null &&
-            (wf.fit === "tight" || wf.fit === "exceeds") && (
+            (wf.fit === "tight" || wf.fit === "exceeds" || wf.fit === "streams") && (
               <p
                 className={`mb-2 text-[11px] leading-relaxed ${
-                  wf.fit === "exceeds" ? "text-status-failed/90" : "text-amber-450/80"
+                  wf.fit === "exceeds"
+                    ? "text-status-failed/90"
+                    : wf.fit === "streams"
+                      ? "text-fog"
+                      : "text-amber-450/80"
                 }`}
               >
                 {wf.fit_detail || "This pack's models may not fit this card's VRAM."}

@@ -213,7 +213,7 @@ export interface WorkflowManifest {
   supports_plate?: boolean;
   /** Hardware fit of the pack's model set on this engine's card. Modeled —
    *  a measured median_render_s beats it (measured beats modeled). */
-  fit?: "ok" | "tight" | "exceeds" | "unknown";
+  fit?: "ok" | "streams" | "tight" | "exceeds" | "unknown";
   /** One honest sentence when fit is tight/exceeds ("" otherwise). */
   fit_detail?: string;
   /** Median seconds per frame/clip from real renders on this machine. */

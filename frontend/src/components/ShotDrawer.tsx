@@ -70,6 +70,7 @@ function fmtDuration(s: number): string {
 function engineSpeedSuffix(w: WorkflowManifest): string {
   if (w.median_render_s != null) return ` (${fmtDuration(w.median_render_s)})`;
   if (w.fit === "tight" || w.fit === "exceeds") return " (slow on this card)";
+  if (w.fit === "streams") return " (streams on this card)";
   return "";
 }
 
@@ -99,6 +100,13 @@ function EngineSpeedHint({
         }`}
       >
         {workflow.fit_detail || "May be slow on this card."} No renders here yet.
+      </p>
+    );
+  }
+  if (workflow.fit === "streams") {
+    return (
+      <p className="mt-1 text-[11px] leading-relaxed text-fog">
+        {workflow.fit_detail || "Streams layers on this card — works, just slower."}
       </p>
     );
   }

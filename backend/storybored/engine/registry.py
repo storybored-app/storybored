@@ -417,12 +417,13 @@ async def list_workflows(
                 zip(
                     ("fit", "fit_detail"),
                     fitness.fit_verdict(
-                        fitness.pack_peak_bytes(
+                        fitness.pack_size_profile(
                             effective_required_models(pack, model_overrides, overrides),
                             file_catalog,
                             comfy_models_dir,
                         ),
                         budget,
+                        offload_friendly=bool(manifest.get("offload_friendly")),
                     ),
                 )
             ),
