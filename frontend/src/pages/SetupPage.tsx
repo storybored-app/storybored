@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   Cpu,
+  Download,
   ExternalLink,
   FlaskConical,
   Layout as LayoutIcon,
@@ -17,10 +18,16 @@ import {
   Sparkles,
   UserRound,
 } from "lucide-react";
-import { apiGet, apiPut } from "../lib/api";
+import { apiGet, apiPost, apiPut } from "../lib/api";
 import { Badge, Button, Field, Input, Select, Spinner } from "../components/ui";
+import { formatBytes } from "../lib/format";
 import { useToast } from "../lib/toast";
-import type { CapabilityTier, SettingsMap, SetupProbe } from "../lib/types";
+import type {
+  CapabilityTier,
+  RecommendedPack,
+  SettingsMap,
+  SetupProbe,
+} from "../lib/types";
 
 /* ---------------------------------------------------------------- helpers */
 
@@ -35,15 +42,25 @@ const STEPS: Record<Path, StepId[]> = {
 };
 
 const TIER_COPY: Record<CapabilityTier, { label: string; blurb: string }> = {
-  video: {
-    label: "video-class",
+  studio: {
+    label: "studio-class",
     blurb:
-      "This card fits everything: stills, video clips, and character training.",
+      "This card fits everything: the biggest stills engine, 14B video, and character training.",
+  },
+  "stills-hd": {
+    label: "stills-HD-class",
+    blurb:
+      "Great for stills — the default engine fits comfortably — plus lightweight video. 14B video and character training want a 24 GB-class card.",
   },
   stills: {
     label: "stills-class",
     blurb:
-      "Great for stills — the default Krea 2 engine fits comfortably. Video rendering and character training want a 24 GB-class card.",
+      "Good for fast photoreal stills and lightweight video clips. The heavier engines want 16–24 GB.",
+  },
+  "stills-lite": {
+    label: "stills-lite-class",
+    blurb:
+      "Fits a fast, compact stills engine (with some offloading at the low end). Video rendering and training want bigger cards.",
   },
   board: {
     label: "boards only",
@@ -101,8 +118,16 @@ function CodeLine({ children }: { children: string }) {
   );
 }
 
-/** Collapsible "I don't have an LLM yet" panel: verified Ollama setup. */
-function OllamaGuide({ onUseDefaults }: { onUseDefaults: () => void }) {
+/** Collapsible "I don't have an LLM yet" panel: verified Ollama setup.
+ *  `suggested` is the tier-matched model tag from the engine probe (falls
+ *  back to the 9b default when the engine wasn't probed). */
+function OllamaGuide({
+  suggested,
+  onUseDefaults,
+}: {
+  suggested: string;
+  onUseDefaults: () => void;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div className="rounded-lg border border-line/60 bg-ink-900">
@@ -144,11 +169,11 @@ function OllamaGuide({ onUseDefaults }: { onUseDefaults: () => void }) {
               .
             </p>
             <p className="font-medium text-paper">Then, on any platform</p>
-            <CodeLine>ollama pull qwen3:14b</CodeLine>
+            <CodeLine>{`ollama pull ${suggested}`}</CodeLine>
           </div>
           <p className="text-fog">
-            That's StoryBored's default model. Ollama then answers at{" "}
-            <code>http://127.0.0.1:11434/v1</code> —{" "}
+            That's the model suggested for your hardware. Ollama then answers
+            at <code>http://127.0.0.1:11434/v1</code> —{" "}
             <button
               onClick={onUseDefaults}
               className="font-medium text-amber-450 hover:text-amber-350"
@@ -158,14 +183,63 @@ function OllamaGuide({ onUseDefaults }: { onUseDefaults: () => void }) {
             and hit Test.
           </p>
           <p className="text-fog">
-            Honest resource note: qwen3:14b is a 9.3 GB download (4-bit
-            quantized) and needs roughly that much free RAM or VRAM to run —
-            it's fine on CPU, just slower. Ollama unloads idle models after a
-            few minutes, so it can share a GPU with the render engine. And if
+            Honest resource note: qwen3.5:9b (the default) is a 6.6 GB
+            download and needs roughly that much free RAM or VRAM; qwen3.5:4b
+            (3.4 GB) suits small GPUs and CPU-only boxes, and qwen3.5:35b-a3b
+            (24 GB) wants 32 GB+ of VRAM. CPU works everywhere, just slower.
+            Ollama unloads idle models after a few minutes, so it can share a
+            GPU with the render engine — and setting{" "}
+            <code>llm_keep_alive</code> to <code>0</code> in Settings frees
+            the VRAM immediately after each call on a shared-GPU box. If
             you'd rather not run one at all, any OpenAI-compatible hosted API
             works instead: paste its base URL, model name, and API key.
           </p>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** One tier-recommended engine: name, size of what's missing, one-click fetch. */
+function RecommendedRow({
+  rec,
+  modelsDirSet,
+  busy,
+  onDownload,
+}: {
+  rec: RecommendedPack;
+  modelsDirSet: boolean;
+  busy: boolean;
+  onDownload: (packId: string) => void;
+}) {
+  return (
+    <div className="rounded-md border border-line/60 bg-ink-950 px-3 py-2">
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-paper">
+          {rec.name}
+        </span>
+        <Badge tone="fog">{rec.kind}</Badge>
+        {rec.available ? (
+          <Badge tone="green">installed</Badge>
+        ) : (
+          <>
+            {rec.download_bytes > 0 && (
+              <span className="shrink-0 text-xs text-fog">
+                {formatBytes(rec.download_bytes)} to download
+              </span>
+            )}
+            {rec.downloadable && modelsDirSet && (
+              <Button size="sm" busy={busy} onClick={() => onDownload(rec.id)}>
+                <Download size={13} /> Download missing
+              </Button>
+            )}
+          </>
+        )}
+      </div>
+      {rec.license_note && (
+        <p className="mt-1 text-[11px] leading-relaxed text-amber-450/90">
+          {rec.license_note}
+        </p>
       )}
     </div>
   );
@@ -248,6 +322,14 @@ export function SetupPage() {
       }
       if (path !== "none" && trainerDir.trim())
         values.lora_factory_dir = trainerDir.trim();
+      // Preselect the tier-recommended engines as the defaults — only when
+      // the user hasn't already chosen defaults, and always changeable in
+      // Settings (a recommendation preselects, never locks).
+      const rec = engineProbe?.recommended;
+      if (rec?.image && !getSetting(settings, "default_image_workflow"))
+        values.default_image_workflow = rec.image.id;
+      if (rec?.video && !getSetting(settings, "default_video_workflow"))
+        values.default_video_workflow = rec.video.id;
       return apiPut("/api/settings", { values });
     },
     onSuccess: () => {
@@ -261,8 +343,35 @@ export function SetupPage() {
   const next = () => setStepIdx((i) => Math.min(i + 1, steps.length - 1));
   const back = () => setStepIdx((i) => Math.max(i - 1, 0));
 
+  // one-click fetch of a recommended engine's missing files (io-lane jobs)
+  const downloadModels = useMutation({
+    mutationFn: (packId: string) =>
+      apiPost<{ queued: number; skipped: string[] }>(
+        `/api/workflows/${packId}/download-models`,
+        {},
+      ),
+    onSuccess: (data) => {
+      if (data.queued > 0) {
+        toast(
+          `Downloading ${data.queued} model file${data.queued === 1 ? "" : "s"} — watch the job tray, then hit Test again.`,
+          "success",
+        );
+      } else {
+        toast("Nothing to download — already fetching or nothing missing.", "success");
+      }
+    },
+    onError: (e: Error) => toast(e.message, "error"),
+  });
+
   const engineOk = engineProbe?.comfy.status === "ok";
   const tier: CapabilityTier = engineProbe?.comfy.tier ?? "board";
+  const recommended = engineProbe?.recommended ?? null;
+  const recommendedPacks = recommended
+    ? [recommended.image, recommended.video].filter(
+        (r): r is RecommendedPack => r !== null,
+      )
+    : [];
+  const modelsDirSet = !!getSetting(settings, "comfy_models_dir");
   const llmOk = llmProbe?.llm.status === "ok";
   const llmModels = llmProbe?.llm.models ?? [];
   const trainerOk = trainerProbe?.trainer.status === "ok";
@@ -430,24 +539,70 @@ export function SetupPage() {
                       </Badge>
                       <span>{TIER_COPY[tier].blurb}</span>
                     </p>
+                    {recommendedPacks.length > 0 && (
+                      <div>
+                        <p className="mb-1 text-xs font-medium uppercase tracking-wider text-fog">
+                          Recommended for your GPU
+                        </p>
+                        <div className="space-y-1.5">
+                          {recommendedPacks.map((rec) => (
+                            <RecommendedRow
+                              key={rec.id}
+                              rec={rec}
+                              modelsDirSet={modelsDirSet}
+                              busy={downloadModels.isPending}
+                              onDownload={(id) => downloadModels.mutate(id)}
+                            />
+                          ))}
+                        </div>
+                        {recommendedPacks.some(
+                          (r) => !r.available && r.downloadable,
+                        ) &&
+                          !modelsDirSet && (
+                            <p className="mt-1.5 text-[11px] text-fog">
+                              These files can be fetched for you in one click —
+                              set the engine models folder in{" "}
+                              <Link
+                                to="/settings"
+                                className="text-amber-450 hover:text-amber-350"
+                              >
+                                Settings
+                              </Link>{" "}
+                              first (works when StoryBored runs on the same
+                              computer as the engine).
+                            </p>
+                          )}
+                        <p className="mt-1.5 text-[11px] text-fog">
+                          Finishing setup makes these your default engines —
+                          you can pick different ones in Settings any time.
+                        </p>
+                      </div>
+                    )}
                     <div>
                       <p className="mb-1 text-xs font-medium uppercase tracking-wider text-fog">
                         Engines on this system
                       </p>
                       <ul className="space-y-1">
                         {engineProbe.workflows.map((w) => (
-                          <li key={w.id} className="flex items-center gap-2 text-xs">
-                            <span className="min-w-0 flex-1 truncate text-paper">
-                              {w.name}
-                            </span>
-                            <Badge tone="fog">{w.kind}</Badge>
-                            {w.available ? (
-                              <Badge tone="green">ready</Badge>
-                            ) : (
-                              <Badge tone="red">
-                                {w.missing_models.length || "?"} missing file
-                                {w.missing_models.length === 1 ? "" : "s"}
-                              </Badge>
+                          <li key={w.id} className="text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className="min-w-0 flex-1 truncate text-paper">
+                                {w.name}
+                              </span>
+                              <Badge tone="fog">{w.kind}</Badge>
+                              {w.available ? (
+                                <Badge tone="green">ready</Badge>
+                              ) : (
+                                <Badge tone="red">
+                                  {w.missing_models.length || "?"} missing file
+                                  {w.missing_models.length === 1 ? "" : "s"}
+                                </Badge>
+                              )}
+                            </div>
+                            {w.license_note && (
+                              <p className="mt-0.5 text-[11px] leading-relaxed text-amber-450/80">
+                                {w.license_note}
+                              </p>
                             )}
                           </li>
                         ))}
@@ -507,9 +662,10 @@ export function SetupPage() {
           </p>
           <div className="mt-4 space-y-3.5">
             <OllamaGuide
+              suggested={recommended?.llm ?? "qwen3.5:9b"}
               onUseDefaults={() => {
                 setLlmUrl("http://127.0.0.1:11434/v1");
-                setLlmModel("qwen3:14b");
+                setLlmModel(recommended?.llm ?? "qwen3.5:9b");
                 setLlmProbe(null);
               }}
             />

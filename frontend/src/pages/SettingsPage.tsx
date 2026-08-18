@@ -259,6 +259,11 @@ function WorkflowRow({
       </button>
       {open && (
         <div className="px-11 pb-4">
+          {wf.license_note && (
+            <p className="mb-2 text-[11px] leading-relaxed text-amber-450/80">
+              {wf.license_note}
+            </p>
+          )}
           {unreachable && (
             <p className="mb-2 text-xs text-status-failed/90">
               Can't reach the image engine — is it running? Set its address above.

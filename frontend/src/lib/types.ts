@@ -164,6 +164,8 @@ export interface WorkflowManifest {
   name: string;
   kind: "image" | "video" | string;
   description?: string;
+  /** Honest-disclosure line for packs with license caveats ("" = none). */
+  license_note?: string;
   parameters?: WorkflowParameter[];
   available?: boolean;
   missing_models?: string[];
@@ -277,7 +279,35 @@ export interface SetupGpu {
 }
 
 /** What the machine can do, derived from reported VRAM (see /api/setup/probe). */
-export type CapabilityTier = "board" | "stills" | "video";
+export type CapabilityTier =
+  | "board"
+  | "stills-lite"
+  | "stills"
+  | "stills-hd"
+  | "studio";
+
+/** One recommended engine pack in the setup probe's `recommended` block. */
+export interface RecommendedPack {
+  id: string;
+  name: string;
+  kind: string;
+  available: boolean;
+  missing_models: string[];
+  /** Catalog-verified total size of the missing files (bytes). */
+  download_bytes: number;
+  /** True when every missing file has a verified source (one-click fetch). */
+  downloadable: boolean;
+  license_note: string;
+}
+
+/** The tier-matched recommendations (null unless the engine answered). */
+export interface SetupRecommended {
+  tier: CapabilityTier;
+  image: RecommendedPack | null;
+  video: RecommendedPack | null;
+  /** Suggested Ollama model tag for the writing assistant. */
+  llm: string;
+}
 
 /** GET /api/setup/probe — deep probe for the setup wizard. */
 export interface SetupProbe {
@@ -292,8 +322,11 @@ export interface SetupProbe {
     kind: string;
     available: boolean;
     missing_models: string[];
+    license_note: string;
   }[];
-  tiers: { stills_min_vram_gb: number; video_min_vram_gb: number };
+  recommended: SetupRecommended | null;
+  /** Tier name → its VRAM floor in GiB. */
+  tiers: Record<string, number>;
 }
 
 /** GET /api/settings response: DB overrides + effective values (env merged in).
