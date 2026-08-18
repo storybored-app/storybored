@@ -28,6 +28,8 @@ from sqlmodel import Session, select
 
 from storybored.config import Settings
 from storybored.db import get_session
+from storybored.engine import registry
+from storybored.engine.families import DEFAULT_TRAINING_FAMILY, pack_family
 from storybored.models import Character, Job
 from storybored.training import fetch
 from storybored.training.lora_factory import (
@@ -84,6 +86,26 @@ def _parse_urls(raw: str) -> list[str]:
 
 def _job_name(handle: str) -> str:
     return f"{handle}-v1"
+
+
+def _training_family(session: Session, settings: Settings) -> str:
+    """The LoRA family the next training run must target.
+
+    Training exists to serve rendering, so the target is the **default image
+    engine's** ``lora_family``. When no family resolves (no image packs, or a
+    family-agnostic default engine) fall back to ``DEFAULT_TRAINING_FAMILY``
+    ("krea2" — the historical behavior: every pre-family lora-factory run
+    produced a Krea 2 LoRA).
+    """
+    from storybored.api.settings_api import effective_setting
+
+    packs = registry.load_packs(settings)
+    workflow_id = effective_setting(session, settings, "default_image_workflow")
+    if not workflow_id:
+        workflow_id = registry.default_workflow_id(packs, kind="image")
+    pack = packs.get(workflow_id) if workflow_id else None
+    family = pack_family(pack.manifest) if pack is not None else ""
+    return family or DEFAULT_TRAINING_FAMILY
 
 
 def _latest_job(session: Session, job_type: str, character_id: int) -> Job | None:
@@ -191,12 +213,17 @@ def characters_wizard(
         )
 
     trigger_final = trigger.strip() or f"{handle_norm}x7"
+    # the family this training run will target — stamped now so the wizard can
+    # show it, re-resolved (and re-stamped) at train time in case the default
+    # engine changed between prep and train
+    family = _training_family(session, settings)
     character = Character(
         name=name.strip(),
         handle=handle_norm,
         trigger=trigger_final,
         class_word=class_word.strip() or "person",
         status="dataset",
+        lora_family=family,
     )
     session.add(character)
     session.commit()
@@ -212,6 +239,7 @@ def characters_wizard(
             "staging_dir": str(staging),
             "trigger": trigger_final,
             "class_word": character.class_word,
+            "family": family,
         },
     )
     return {
@@ -288,9 +316,25 @@ def start_training(
     prep_payload = json.loads(prep_job.payload_json or "{}")
     job_name = prep_payload.get("job_name") or _job_name(character.handle)
 
+    # authoritative family stamp: training is what binds the LoRA to a model
+    # family, so resolve the target engine's family NOW and record it on the
+    # character (the compatibility guard keys off this value)
+    family = _training_family(session, settings)
+    if character.lora_family != family:
+        character.lora_family = family
+        session.add(character)
+        session.commit()
+        session.refresh(character)
+        request.app.state.bus.publish("character", jsonable_encoder(character))
+
     job = request.app.state.runner.enqueue(
         "lora_train",
-        {"character_id": character_id, "handle": character.handle, "job_name": job_name},
+        {
+            "character_id": character_id,
+            "handle": character.handle,
+            "job_name": job_name,
+            "family": family,
+        },
     )
     return {"job_id": job.id}
 

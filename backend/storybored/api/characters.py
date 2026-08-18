@@ -18,7 +18,7 @@ from sqlmodel import Session, select
 from storybored.api.preflight import require_pack_available, resolve_pack
 from storybored.api.settings_api import effective_setting
 from storybored.db import get_session
-from storybored.engine import registry
+from storybored.engine import families, registry
 from storybored.engine.comfy_client import ComfyClient, ComfyError
 from storybored.models import Character, ShotCharacter
 
@@ -36,6 +36,9 @@ class CharacterCreate(BaseModel):
     class_word: str = "person"
     lora_name: str = ""
     lora_strength: float = 1.0
+    #: model family the LoRA belongs to (e.g. "krea2", "z-image"); None/"" =
+    #: unspecified — the character then works with any engine, unchecked
+    lora_family: str | None = None
     notes: str = ""
     status: str = "ready"
 
@@ -47,8 +50,16 @@ class CharacterUpdate(BaseModel):
     class_word: str | None = None
     lora_name: str | None = None
     lora_strength: float | None = None
+    lora_family: str | None = None  # "" clears back to unspecified
     notes: str | None = None
     status: str | None = None
+
+
+def normalize_family(raw: str | None) -> str | None:
+    """"" / whitespace → None (unspecified); anything else is kept verbatim —
+    family ids are an open vocabulary matched by exact string."""
+    value = (raw or "").strip()
+    return value or None
 
 
 def normalize_handle(raw: str) -> str:
@@ -170,7 +181,13 @@ def create_character(
         raise HTTPException(status_code=422, detail=f"status must be one of {sorted(STATUSES)}")
     if _handle_taken(session, handle):
         raise HTTPException(status_code=409, detail=f"handle '@{handle}' is already taken")
-    char = Character(**{**body.model_dump(), "handle": handle})
+    char = Character(
+        **{
+            **body.model_dump(),
+            "handle": handle,
+            "lora_family": normalize_family(body.lora_family),
+        }
+    )
     session.add(char)
     session.commit()
     session.refresh(char)
@@ -194,6 +211,8 @@ def update_character(
         changes["handle"] = handle
     if "status" in changes and changes["status"] not in STATUSES:
         raise HTTPException(status_code=422, detail=f"status must be one of {sorted(STATUSES)}")
+    if "lora_family" in changes:
+        changes["lora_family"] = normalize_family(changes["lora_family"])
     for key, value in changes.items():
         setattr(char, key, value)
     session.add(char)
@@ -273,6 +292,16 @@ async def generate_thumbnail(
     packs = registry.load_packs(settings)
     pack = resolve_pack(session, settings, packs, body.workflow_id, kind="image")
     workflow_id = pack.id
+    pack_family = families.pack_family(pack.manifest)
+    if pack_family and char.lora_family and char.lora_family != pack_family:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"@{char.handle} was trained for {families.family_label(char.lora_family)}"
+                f" — this engine renders with {families.family_label(pack_family)};"
+                " pick a compatible engine"
+            ),
+        )
     await require_pack_available(session, settings, pack, "cannot render a portrait")
 
     payload = {"character_id": character_id, "workflow_id": workflow_id}

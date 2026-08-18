@@ -62,6 +62,12 @@ class Character(SQLModel, table=True):
     class_word: str = "person"
     lora_name: str = ""  # ComfyUI dropdown name incl. subdir
     lora_strength: float = 1.0
+    #: model family the LoRA binds to ("krea2" | "z-image" | "qwen-image" | any
+    #: user family id). NULL = unknown/family-agnostic (pre-family rows, or an
+    #: import where the user chose "unspecified") — never triggers warnings.
+    #: Stamped by the training path from the target engine's family; optional
+    #: on import.
+    lora_family: str | None = None
     thumbnail_path: str | None = None
     notes: str = ""
     status: str = "ready"  # ready | dataset | training | trained

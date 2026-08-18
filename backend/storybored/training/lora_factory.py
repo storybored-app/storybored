@@ -50,6 +50,15 @@ TOTAL_STEPS = 3000
 TAIL_LINES = 5
 POLL_S = 1.0
 
+#: expected training steps per LoRA family (used for the checkpoint-count
+#: progress fallback and the startup ETA line; live "N/total" stdout lines
+#: always win). krea2 = the tuned 3000-step recipe (~2.5–4 h on 24 GB);
+#: z-image = the community-proven 12 GB recipe (2000 steps, ~1–2 h);
+#: qwen-image = ai-toolkit's example config (2000 steps, EXPERIMENTAL — no
+#: verified timing, so no ETA is claimed for it).
+FAMILY_STEPS: dict[str, int] = {"krea2": 3000, "z-image": 2000, "qwen-image": 2000}
+FAMILY_ETA: dict[str, str] = {"krea2": "~2.5–4h", "z-image": "~1–2h"}
+
 # Matches live-step lines across trainer flavors:
 #   "step 500/3000"            (lora-factory)
 #   "hero-v1: 19/3000 [3.5s/it]" (ai-toolkit tqdm)
@@ -149,14 +158,16 @@ def _log_tail(log_file: Path, lines: int = TAIL_LINES) -> str:
     return "\n".join([ln for ln in text.splitlines() if ln.strip()][-lines:])
 
 
-def _train_progress(log_file: Path, output_dir: Path, job_name: str) -> tuple[float, str]:
+def _train_progress(
+    log_file: Path, output_dir: Path, job_name: str, total_steps: int = TOTAL_STEPS
+) -> tuple[float, str]:
     """(progress 0..0.99, detail tail) from stdout steps else checkpoint count."""
     detail = _log_tail(log_file)
     progress = 0.01
     matches = STEP_RE.findall(detail)
     if matches:
         step, total = matches[-1]
-        total_i = int(total) or TOTAL_STEPS
+        total_i = int(total) or total_steps
         progress = int(step) / total_i
     elif output_dir.is_dir():
         best = 0
@@ -168,7 +179,7 @@ def _train_progress(log_file: Path, output_dir: Path, job_name: str) -> tuple[fl
             if m:
                 best = max(best, int(m.group(1)))
         if best:
-            progress = best / TOTAL_STEPS
+            progress = best / total_steps
     return min(max(progress, 0.01), 0.99), detail
 
 
@@ -194,6 +205,10 @@ async def dataset_prep(job: Job, ctx) -> dict:
         "--class-word",
         payload.get("class_word", "person"),
     ]
+    # target model family (per-family resize ceiling + config template in the
+    # trainer); absent on pre-family payloads → the trainer's own default
+    if payload.get("family"):
+        cmd += ["--family", str(payload["family"])]
     ctx.update_progress(0.05, f"preparing dataset '{job_name}'")
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -397,6 +412,8 @@ async def lora_train(job: Job, ctx) -> dict:
     payload = json.loads(job.payload_json or "{}")
     job_name = payload["job_name"]
     character_id = payload.get("character_id")
+    family = str(payload.get("family") or "")
+    total_steps = FAMILY_STEPS.get(family, TOTAL_STEPS)
     with ctx.session_factory() as session:
         factory = resolve_trainer_dir(session, ctx.settings)
 
@@ -419,18 +436,24 @@ async def lora_train(job: Job, ctx) -> dict:
             ctx.update_progress(detail=f"re-attached to running training (pid {pid})")
             log.info("lora_train %s: re-attached to pid %s", job_name, pid)
     else:
+        cmd = ["bash", "train.sh", job_name]
+        if family:
+            cmd += ["--family", family]
         with log_file.open("ab") as log_fh:
             proc = await asyncio.create_subprocess_exec(
-                "bash",
-                "train.sh",
-                job_name,
+                *cmd,
                 cwd=factory,
                 stdout=log_fh,
                 stderr=asyncio.subprocess.STDOUT,
                 start_new_session=True,
             )
         pid = proc.pid
-        ctx.update_progress(0.01, f"training started (pid {pid}, ~3h for {TOTAL_STEPS} steps)")
+        eta = FAMILY_ETA.get(family or "krea2")
+        ctx.update_progress(
+            0.01,
+            f"training started (pid {pid}, "
+            + (f"{eta} for {total_steps} steps)" if eta else f"{total_steps} steps)"),
+        )
 
     pidfile.write_text(
         json.dumps(
@@ -459,7 +482,7 @@ async def lora_train(job: Job, ctx) -> dict:
                     break
                 await asyncio.sleep(POLL_S)
             ctx.raise_if_cancelled()
-            progress, detail = _train_progress(log_file, output_dir, job_name)
+            progress, detail = _train_progress(log_file, output_dir, job_name, total_steps)
             ctx.update_progress(progress, detail or None)
     except (JobCancelled, asyncio.CancelledError) as exc:
         if isinstance(exc, JobCancelled) or ctx.cancelled():

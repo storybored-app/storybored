@@ -30,6 +30,9 @@ def create_db_engine(settings: Settings):
 _ADDED_COLUMNS: dict[str, dict[str, str]] = {
     "shot": {"frame_position": "VARCHAR NOT NULL DEFAULT 'first'"},
     "job": {"project_id": "INTEGER"},
+    # nullable on purpose: existing characters have an unknown family and must
+    # never start failing compatibility checks after an upgrade
+    "character": {"lora_family": "VARCHAR"},
 }
 
 
