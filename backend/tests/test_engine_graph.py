@@ -109,11 +109,13 @@ def test_single_character_injection_rewires_exact_links():
     # unrelated links untouched
     assert graph["3"]["inputs"]["model"] == ["sage", 0]
     assert graph["lora_7"]["inputs"]["model"] == ["lora_6", 0]
-    # disable_nodes zeroed
-    assert graph["lora_3"]["inputs"]["strength_model"] == 0
-    assert graph["lora_3"]["inputs"]["strength_clip"] == 0
-    assert graph["lora_4"]["inputs"]["strength_model"] == 0
-    assert graph["lora_4"]["inputs"]["strength_clip"] == 0
+    # disable_nodes zeroed — the whole aesthetic stack steps aside for
+    # character identity; only filter-bypass (lora_0) + turbo (lora_5) stay
+    for nid_off in ("lora_1", "lora_2", "lora_3", "lora_4", "lora_6", "lora_7"):
+        assert graph[nid_off]["inputs"]["strength_model"] == 0
+        assert graph[nid_off]["inputs"]["strength_clip"] == 0
+    assert graph["lora_0"]["inputs"]["strength_model"] == 1
+    assert graph["lora_5"]["inputs"]["strength_model"] == 1
 
 
 def test_multi_character_chain():
@@ -472,3 +474,46 @@ def test_registry_scans_repo_and_data_dir(tmp_path):
     packs = registry.load_packs(settings)
     assert "my-pack" in packs
     assert packs["my-pack"].load_graph() == {}
+
+
+def test_shootout_compare_env_from_pack():
+    """The shootout must render through the pack's own graph with the
+    manifest's character-time LoRA exclusions — not a machine-specific chain."""
+    from storybored.training.lora_factory import _compare_env_for_pack
+
+    settings = Settings(data_dir="/tmp/nonexistent-sb-test")
+    pack = registry.load_packs(settings)["krea2-realism"]
+    env = _compare_env_for_pack(pack)
+
+    assert env["COMFY_WORKFLOW"].endswith("krea2-realism/graph.json")
+    nodes = json.loads(env["COMPARE_NODES"])
+    assert nodes == {
+        "seed": "3",
+        "size": "5",
+        "prompt": "6",
+        "save": "9",
+        "lora_tail": "lora_7",
+        "model_consumer": "sage",
+    }
+    skip = env["COMPARE_SKIP_LORAS"].split(",")
+    # every disabled aesthetic LoRA is excluded by exact filename
+    assert "bloomgirls-ultrarealism-krea2_4k.safetensors" in skip
+    assert "Krea2-realism-V2.safetensors" in skip
+    assert "RealisticSnapshotKrea2.safetensors" in skip
+    assert "realism_engine_krea2_v3.1.safetensors" in skip
+    assert "Detailer-KREA2.safetensors" in skip
+    assert "lenovo_krea2.safetensors" in skip
+    # the identity-neutral chain survives
+    assert "krea2filterbypass3.safetensors" not in skip
+
+
+def test_shootout_compare_env_basic_pack():
+    from storybored.training.lora_factory import _compare_env_for_pack
+
+    settings = Settings(data_dir="/tmp/nonexistent-sb-test")
+    pack = registry.load_packs(settings)["krea2-basic"]
+    env = _compare_env_for_pack(pack)
+    # basic pack has no disable list — no skip env at all
+    assert "COMPARE_SKIP_LORAS" not in env
+    nodes = json.loads(env["COMPARE_NODES"])
+    assert nodes["lora_tail"] == "lora_distill"

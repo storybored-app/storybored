@@ -120,7 +120,7 @@ API export keeps only ids, so keep the editor-format `.json` around as your
     {"key": "height", "type": "int",  "node": "5", "input": "height", "default": 1152}
   ],
   "output_node": "9",
-  "character_injection": {"after_node": "lora_7", "disable_nodes": ["lora_3", "lora_4"]},
+  "character_injection": {"after_node": "lora_7", "disable_nodes": ["lora_1", "lora_2", "lora_3", "lora_4", "lora_6", "lora_7"]},
   "required_models": {
     "UNETLoader.unet_name": ["krea2_raw_fp8_scaled.safetensors"]
   }
@@ -189,8 +189,15 @@ splices Sam's LoRA into your graph at generation time — your pack just declare
 *where*:
 
 ```json
-"character_injection": {"after_node": "lora_7", "disable_nodes": ["lora_3", "lora_4"]}
+"character_injection": {"after_node": "lora_7", "disable_nodes": ["lora_1", "lora_2", "lora_3", "lora_4", "lora_6", "lora_7"]}
 ```
+
+Aesthetic LoRAs (realism, detailer, "beauty" face LoRAs) are trained on their
+own faces and will fight — and often overpower — a character LoRA's identity,
+so `disable_nodes` should list your *entire* aesthetic stack; keep only
+identity-neutral utilities (filter bypass, turbo distill) live with characters.
+The checkpoint shootout renders through this same pack with the same
+exclusions, so its likeness scores measure the character, not the makeup.
 
 - **`after_node`** — the node whose MODEL/CLIP outputs the character LoRA
   should hang off. Usually the *last* `LoraLoader` in your style chain (or the

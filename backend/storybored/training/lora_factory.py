@@ -326,13 +326,14 @@ async def _stream_subprocess(
     tail: deque[str],
     progress_lo: float,
     progress_hi: float,
+    env_extra: dict[str, str] | None = None,
 ) -> int:
     """Run cmd streaming stdout into job.detail; compare-style [n/total] lines
     map onto the [progress_lo, progress_hi] band. Kills the group on cancel."""
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         cwd=cwd,
-        env={**os.environ, "HF_HUB_OFFLINE": "1"},
+        env={**os.environ, "HF_HUB_OFFLINE": "1", **(env_extra or {})},
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         start_new_session=True,
@@ -360,12 +361,79 @@ async def _stream_subprocess(
         raise
 
 
+def _compare_env_for_pack(pack) -> dict[str, str]:
+    """compare.py env for rendering through a workflow pack: the pack's graph,
+    its node ids, and the manifest's character-time LoRA exclusions
+    (``character_injection.disable_nodes`` — aesthetic LoRAs that fight the
+    character identity being measured)."""
+    manifest = pack.manifest
+    injection = manifest.get("character_injection") or {}
+    tail_node = str(injection.get("after_node") or "")
+    if not tail_node:
+        return {}
+    try:
+        graph = pack.load_graph()
+    except (OSError, ValueError):
+        return {}
+
+    def _model_ref(node: dict) -> str | None:
+        ref = node.get("inputs", {}).get("model")
+        return str(ref[0]) if isinstance(ref, list) and len(ref) == 2 else None
+
+    consumer = next(
+        (nid for nid, node in graph.items() if _model_ref(node) == tail_node), None
+    )
+    params = {p.get("key"): str(p.get("node")) for p in manifest.get("parameters", [])}
+    nodes = {
+        "seed": params.get("seed"),
+        "size": params.get("width"),
+        "prompt": params.get("prompt"),
+        "save": str(manifest.get("output_node") or ""),
+        "lora_tail": tail_node,
+        "model_consumer": consumer,
+    }
+    if not all(nodes.values()):
+        return {}
+    skip = [
+        str(graph[str(nid)]["inputs"].get("lora_name"))
+        for nid in injection.get("disable_nodes") or []
+        if str(nid) in graph
+        and graph[str(nid)].get("class_type") == "LoraLoader"
+        and graph[str(nid)]["inputs"].get("lora_name")
+    ]
+    env = {
+        "COMFY_WORKFLOW": str(pack.dir / (manifest.get("graph") or "graph.json")),
+        "COMPARE_NODES": json.dumps(nodes),
+    }
+    if skip:
+        env["COMPARE_SKIP_LORAS"] = ",".join(skip)
+    return env
+
+
+def _shootout_engine_env(session, settings) -> dict[str, str]:
+    """Resolve the app's default image engine and build compare.py's env from
+    it, so the shootout renders through the same chain the app renders with.
+    Empty dict → compare.py falls back to its standalone-CLI defaults."""
+    from storybored.api.settings_api import effective_setting
+    from storybored.engine import registry
+
+    packs = registry.load_packs(settings)
+    workflow_id = effective_setting(session, settings, "default_image_workflow")
+    if not workflow_id:
+        workflow_id = registry.default_workflow_id(packs, kind="image")
+    pack = packs.get(workflow_id) if workflow_id else None
+    if pack is None:
+        return {}
+    return _compare_env_for_pack(pack)
+
+
 @register("lora_shootout")
 async def lora_shootout(job: Job, ctx) -> dict:
     payload = json.loads(job.payload_json or "{}")
     job_name = payload["job_name"]
     with ctx.session_factory() as session:
         factory = resolve_trainer_dir(session, ctx.settings)
+        engine_env = _shootout_engine_env(session, ctx.settings)
     python = factory_python(factory)
 
     compare_cmd = [python, "compare.py", job_name]
@@ -380,7 +448,9 @@ async def lora_shootout(job: Job, ctx) -> dict:
 
     tail: deque[str] = deque(maxlen=TAIL_LINES)
     ctx.update_progress(0.02, f"rendering checkpoint test shots for '{job_name}'")
-    code = await _stream_subprocess(ctx, compare_cmd, factory, tail, 0.02, 0.7)
+    code = await _stream_subprocess(
+        ctx, compare_cmd, factory, tail, 0.02, 0.7, env_extra=engine_env
+    )
     if code != 0:
         raise RuntimeError(f"compare.py exited with code {code}\n" + "\n".join(tail))
 

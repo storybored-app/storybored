@@ -19,7 +19,7 @@
   ],
   "character_injection": {
     "after_node": "lora_7",
-    "disable_nodes": ["lora_3", "lora_4"]
+    "disable_nodes": ["lora_1", "lora_2", "lora_3", "lora_4", "lora_6", "lora_7"]
   },
   "required_models": {
     "UNETLoader.unet_name": ["krea2_raw_fp8_scaled.safetensors"],
