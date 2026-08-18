@@ -5,13 +5,14 @@ engine's /system_stats payload (faked here), and a missing/odd payload lands
 in the conservative "board" tier.
 """
 
+import pytest
 from fake_comfy import fake_comfy  # noqa: F401 - fixture
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 from test_health_probes import make_client, serve, unused_port_url
 
-from storybored.api.health import derive_tier, parse_gpus
+from storybored.api.health import derive_tier, parse_gpus, recommended_llm_tag
 
 GIB = 2**30
 
@@ -29,17 +30,26 @@ def gpu_stats(*vram_gib: float, name: str = "cuda:0 Test GPU : cudaMallocAsync")
 # ------------------------------------------------------------- tier derivation
 
 
-def test_tier_video_at_24gb():
-    assert derive_tier(parse_gpus(gpu_stats(23.99))) == "video"
-
-
-def test_tier_stills_at_16gb():
-    # a "16 GB" card typically reports a hair under 16 GiB — must still qualify
-    assert derive_tier(parse_gpus(gpu_stats(15.99))) == "stills"
-
-
-def test_tier_board_below_16gb():
-    assert derive_tier(parse_gpus(gpu_stats(11.99))) == "board"
+@pytest.mark.parametrize(
+    ("vram_gib", "tier"),
+    [
+        # cards typically report a hair under their marketing size — rounding
+        # to whole GiB must keep them in their tier
+        (23.99, "studio"),
+        (32.0, "studio"),
+        (23.4, "stills-hd"),
+        (15.99, "stills-hd"),
+        (15.4, "stills"),
+        (11.99, "stills"),
+        (11.4, "stills-lite"),
+        (8.0, "stills-lite"),
+        (5.99, "stills-lite"),
+        (5.4, "board"),
+        (4.0, "board"),
+    ],
+)
+def test_tier_boundaries(vram_gib, tier):
+    assert derive_tier(parse_gpus(gpu_stats(vram_gib))) == tier
 
 
 def test_tier_board_when_no_devices_reported():
@@ -53,7 +63,16 @@ def test_tier_board_when_cpu_only():
 
 
 def test_tier_uses_best_gpu():
-    assert derive_tier(parse_gpus(gpu_stats(8.0, 24.0))) == "video"
+    assert derive_tier(parse_gpus(gpu_stats(8.0, 24.0))) == "studio"
+
+
+@pytest.mark.parametrize(
+    ("vram_gib", "tag"),
+    [(None, "qwen3.5:4b"), (8.0, "qwen3.5:4b"), (11.99, "qwen3.5:9b"),
+     (24.0, "qwen3.5:9b"), (31.99, "qwen3.5:35b-a3b"), (48.0, "qwen3.5:35b-a3b")],
+)
+def test_recommended_llm_tag_by_vram(vram_gib, tag):
+    assert recommended_llm_tag(vram_gib) == tag
 
 
 def test_gpu_without_vram_number_stays_honest():
@@ -76,14 +95,85 @@ def test_probe_reports_gpu_tier_and_packs(tmp_path, fake_comfy):  # noqa: F811
     with make_client(tmp_path, comfyui_url=fake_comfy.url) as client:
         body = client.get("/api/setup/probe").json()
     assert body["comfy"]["status"] == "ok"
-    assert body["comfy"]["tier"] == "video"
+    assert body["comfy"]["tier"] == "studio"
     assert body["comfy"]["gpus"] == [{"name": "cuda:0 Test GPU 24G", "vram_gb": 24.0}]
     # shipped packs validated against the fake's enums (allow_pack_models())
     by_id = {w["id"]: w for w in body["workflows"]}
     assert by_id["krea2-basic"]["available"] is True
     assert by_id["krea2-basic"]["kind"] == "image"
-    assert body["tiers"] == {"stills_min_vram_gb": 16, "video_min_vram_gb": 24}
+    assert by_id["minimax-h3-i2v"]["license_note"] != ""
+    assert by_id["z-image-turbo"]["license_note"] == ""
+    assert body["tiers"] == {
+        "studio": 24, "stills-hd": 16, "stills": 12, "stills-lite": 6,
+    }
     assert body["trainer"]["status"] == "not_configured"
+
+
+# ---------------------------------------------------------- recommended block
+
+
+@pytest.mark.parametrize(
+    ("vram_gib", "tier", "image_id", "video_id", "llm"),
+    [
+        (8.0, "stills-lite", "z-image-turbo", None, "qwen3.5:4b"),
+        (12.0, "stills", "z-image-turbo", "wan22-ti2v-5b", "qwen3.5:9b"),
+        (16.0, "stills-hd", "krea2-basic", "wan22-ti2v-5b", "qwen3.5:9b"),
+        (24.0, "studio", "qwen-image-2512", "wan22-i2v-14b", "qwen3.5:9b"),
+        (32.0, "studio", "qwen-image-2512", "wan22-i2v-14b", "qwen3.5:35b-a3b"),
+    ],
+)
+def test_probe_recommends_per_tier(
+    tmp_path, fake_comfy, vram_gib, tier, image_id, video_id, llm  # noqa: F811
+):
+    fake_comfy.state.system_stats = gpu_stats(vram_gib)
+    with make_client(tmp_path, comfyui_url=fake_comfy.url) as client:
+        rec = client.get("/api/setup/probe").json()["recommended"]
+    assert rec["tier"] == tier
+    assert rec["llm"] == llm
+    assert rec["image"]["id"] == image_id
+    if video_id is None:
+        assert rec["video"] is None
+    else:
+        assert rec["video"]["id"] == video_id
+    # the fake allows every shipped pack's models → nothing to download
+    assert rec["image"]["available"] is True
+    assert rec["image"]["missing_models"] == []
+    assert rec["image"]["download_bytes"] == 0
+
+
+def test_probe_recommendation_carries_download_size(tmp_path, fake_comfy):  # noqa: F811
+    """Missing files roll up to a catalog-verified download size so the wizard
+    can say what one click will fetch."""
+    fake_comfy.state.system_stats = gpu_stats(12.0)
+    fake_comfy.state.models["UNETLoader.unet_name"] = []
+    fake_comfy.state.models["CLIPLoader.clip_name"] = []
+    with make_client(tmp_path, comfyui_url=fake_comfy.url) as client:
+        rec = client.get("/api/setup/probe").json()["recommended"]
+    image = rec["image"]
+    assert image["id"] == "z-image-turbo"
+    assert image["available"] is False
+    assert set(image["missing_models"]) == {
+        "z_image_turbo_int8_convrot.safetensors",
+        "qwen_3_4b_fp8_mixed.safetensors",
+    }
+    # exact sum of the two files' catalog sizes (HF-API-verified bytes)
+    assert image["download_bytes"] == 6201001296 + 5631994051
+    assert image["downloadable"] is True
+
+
+def test_probe_no_recommendation_when_engine_down(tmp_path):
+    with make_client(tmp_path, comfyui_url=unused_port_url()) as client:
+        body = client.get("/api/setup/probe").json()
+    assert body["recommended"] is None
+
+
+def test_probe_board_tier_recommends_no_packs(tmp_path, fake_comfy):  # noqa: F811
+    fake_comfy.state.system_stats = gpu_stats(4.0)
+    with make_client(tmp_path, comfyui_url=fake_comfy.url) as client:
+        rec = client.get("/api/setup/probe").json()["recommended"]
+    assert rec["tier"] == "board"
+    assert rec["image"] is None and rec["video"] is None
+    assert rec["llm"] == "qwen3.5:4b"
 
 
 def test_probe_missing_models_flagged(tmp_path, fake_comfy):  # noqa: F811

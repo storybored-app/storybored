@@ -33,6 +33,7 @@ from sqlmodel import Session
 from storybored.api.settings_api import effective_setting
 from storybored.config import Settings
 from storybored.db import get_session
+from storybored.engine import catalog
 from storybored.engine.comfy_client import ComfyClient
 from storybored.engine.registry import load_packs, pack_availability
 from storybored.llm.client import LLMNotConfiguredError, get_llm_config
@@ -41,12 +42,43 @@ router = APIRouter(prefix="/api", tags=["health"])
 
 PROBE_TIMEOUT_S = 3.0
 
-#: capability tiers derived from the engine's reported VRAM (GiB, rounded).
-#: "board" = no usable GPU: the board, script breakdown and animatic assembly
-#: still work; rendering doesn't. "stills" = image engines fit. "video" =
-#: video engines fit and the GPU is training-class.
-STILLS_MIN_VRAM_GB = 16
-VIDEO_MIN_VRAM_GB = 24
+#: Capability tiers derived from the engine's reported VRAM (GiB, rounded),
+#: best tier first. "board" (below every floor) = no usable GPU: the board,
+#: script breakdown and animatic assembly still work; rendering doesn't.
+#: The floors track the verified engine recommendations in docs/MODELS.md:
+#:   studio     ≥24 — every engine incl. Qwen-Image, 14B video and training
+#:   stills-hd  ≥16 — the Krea 2 default fits comfortably; 5B video
+#:   stills     ≥12 — Z-Image Turbo runs fully on-GPU; 5B video with offload
+#:   stills-lite ≥6 — Z-Image Turbo with text-encoder offloading
+TIER_FLOORS: list[tuple[str, int]] = [
+    ("studio", 24),
+    ("stills-hd", 16),
+    ("stills", 12),
+    ("stills-lite", 6),
+]
+
+#: Per-tier engine recommendations (the research-verified winners documented
+#: in docs/MODELS.md). None = no pack of that kind is honestly recommendable
+#: at the tier: video below 12 GB would over-promise (the 5B engine's floor
+#: is 8 GB *with* offloading), and board can't render at all.
+TIER_PACKS: dict[str, dict[str, str | None]] = {
+    "board": {"image": None, "video": None},
+    "stills-lite": {"image": "z-image-turbo", "video": None},
+    "stills": {"image": "z-image-turbo", "video": "wan22-ti2v-5b"},
+    "stills-hd": {"image": "krea2-basic", "video": "wan22-ti2v-5b"},
+    "studio": {"image": "qwen-image-2512", "video": "wan22-i2v-14b"},
+}
+
+#: Ollama model tag suggested for the writing assistant, by best-GPU VRAM
+#: (GiB, rounded), largest floor first. The LLM shares the GPU with the
+#: render engine, so each tag leaves headroom: qwen3.5:4b is a 3.4 GB
+#: download, qwen3.5:9b 6.6 GB, qwen3.5:35b-a3b 24 GB (MoE, 3B active).
+#: No/unknown GPU falls through to the smallest (fine on CPU).
+LLM_TAG_FLOORS: list[tuple[int, str]] = [
+    (32, "qwen3.5:35b-a3b"),
+    (12, "qwen3.5:9b"),
+    (0, "qwen3.5:4b"),
+]
 
 
 def _get_json(url: str, headers: dict | None = None) -> tuple[str, object]:
@@ -156,19 +188,66 @@ def parse_gpus(stats: dict) -> list[dict]:
     return gpus
 
 
+def best_vram_gb(gpus: list[dict]) -> float | None:
+    """The largest reported VRAM among the engine's GPUs, or None."""
+    return max((g["vram_gb"] for g in gpus if g["vram_gb"] is not None), default=None)
+
+
 def derive_tier(gpus: list[dict]) -> str:
-    """Capability tier from the best GPU with known VRAM (see constants).
+    """Capability tier from the best GPU with known VRAM (see TIER_FLOORS).
 
     Rounded to whole GiB before comparing so a "16 GB" card that reports
-    15.99 GiB still clears the stills bar."""
-    best = max((g["vram_gb"] for g in gpus if g["vram_gb"] is not None), default=None)
+    15.99 GiB still clears the stills-hd bar."""
+    best = best_vram_gb(gpus)
     if best is None:
         return "board"
-    if round(best) >= VIDEO_MIN_VRAM_GB:
-        return "video"
-    if round(best) >= STILLS_MIN_VRAM_GB:
-        return "stills"
+    for name, floor in TIER_FLOORS:
+        if round(best) >= floor:
+            return name
     return "board"
+
+
+def recommended_llm_tag(vram_gb: float | None) -> str:
+    """Ollama tag for the writing assistant, by VRAM (see LLM_TAG_FLOORS)."""
+    for floor, tag in LLM_TAG_FLOORS:
+        if vram_gb is not None and round(vram_gb) >= floor:
+            return tag
+    return LLM_TAG_FLOORS[-1][1]
+
+
+def _recommended_pack(
+    pack_id: str | None, workflows: list[dict], file_catalog: dict[str, dict]
+) -> dict | None:
+    """The `recommended.image` / `.video` row for the setup probe.
+
+    Enriches the tier's pack pick with what the wizard needs to offer a
+    one-click install: availability, the missing files, their total download
+    size from the catalog, and whether every missing file has a verified
+    source (i.e. "Download missing" can fetch the lot)."""
+    if pack_id is None:
+        return None
+    row = next((w for w in workflows if w["id"] == pack_id), None)
+    if row is None:  # pack folder removed — never recommend what isn't there
+        return None
+    missing = row["missing_models"]
+    download_bytes = 0
+    downloadable = True
+    for filename in missing:
+        entry = file_catalog.get(filename) or {}
+        if isinstance(entry.get("size_bytes"), int):
+            download_bytes += entry["size_bytes"]
+        if not str(entry.get("source", "")).startswith(("http://", "https://")):
+            downloadable = False
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "kind": row["kind"],
+        "available": row["available"],
+        "missing_models": missing,
+        "download_bytes": download_bytes,
+        "downloadable": downloadable,
+        "license_note": row["license_note"],
+    }
 
 
 @router.get("/setup/probe")
@@ -218,6 +297,17 @@ async def setup_probe(
                 }
             )
 
+    recommended = None
+    if comfy_status == "ok":
+        file_catalog = catalog.load_catalog(settings)
+        tier_packs = TIER_PACKS.get(tier) or {"image": None, "video": None}
+        recommended = {
+            "tier": tier,
+            "image": _recommended_pack(tier_packs["image"], workflows, file_catalog),
+            "video": _recommended_pack(tier_packs["video"], workflows, file_catalog),
+            "llm": recommended_llm_tag(best_vram_gb(gpus)),
+        }
+
     if llm_url:
         llm_key = llm_probe_key(session, settings, llm_url)
         llm_status, models = await run_in_threadpool(probe_llm, llm_url, llm_key)
@@ -230,7 +320,8 @@ async def setup_probe(
         "trainer": {"status": probe_trainer(trainer_dir), "dir": trainer_dir},
         "ffmpeg": ffmpeg_status(),
         "workflows": workflows,
-        "tiers": {"stills_min_vram_gb": STILLS_MIN_VRAM_GB, "video_min_vram_gb": VIDEO_MIN_VRAM_GB},
+        "recommended": recommended,
+        "tiers": {name: floor for name, floor in TIER_FLOORS},
     }
 
 
