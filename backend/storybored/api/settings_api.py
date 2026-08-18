@@ -22,6 +22,7 @@ OVERRIDABLE = {
     "llm_base_url",
     "llm_api_key",
     "llm_model",
+    "llm_keep_alive",
     "comfyui_url",
     "comfy_loras_dir",
     "comfy_models_dir",

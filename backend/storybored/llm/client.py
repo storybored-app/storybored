@@ -31,6 +31,12 @@ class LLMConfig:
     base_url: str
     api_key: str = ""
     model: str = ""
+    #: Ollama's per-request keep_alive ("" = don't send the field). Set via
+    #: the llm_keep_alive setting; "0" frees VRAM right after each call on a
+    #: GPU shared with the render engine. Sent ONLY when non-empty — it's an
+    #: explicit opt-in, because strict OpenAI-compatible providers may reject
+    #: unknown request fields. Non-Ollama users simply leave it unset.
+    keep_alive: str = ""
 
 
 def get_llm_config(session: Session, settings: Settings) -> LLMConfig:
@@ -54,7 +60,18 @@ def get_llm_config(session: Session, settings: Settings) -> LLMConfig:
         base_url=base_url.rstrip("/"),
         api_key=api_key,
         model=effective_setting(session, settings, "llm_model"),
+        keep_alive=effective_setting(session, settings, "llm_keep_alive").strip(),
     )
+
+
+def _keep_alive_value(raw: str) -> int | str:
+    """Ollama accepts a number (seconds; 0/-1 special) or a duration string
+    ("5m"). Send integers as integers so "0" means "unload now", not a
+    string the server has to parse."""
+    try:
+        return int(raw)
+    except ValueError:
+        return raw
 
 
 def chat(
@@ -73,6 +90,8 @@ def chat(
         "messages": messages,
         "temperature": temperature,
     }
+    if config.keep_alive:
+        payload["keep_alive"] = _keep_alive_value(config.keep_alive)
     url = f"{config.base_url}/chat/completions"
     try:
         resp = httpx.post(url, json=payload, headers=headers, timeout=timeout)

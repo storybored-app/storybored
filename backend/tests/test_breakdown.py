@@ -211,3 +211,55 @@ def test_apply_breakdown_empty_draft_400(client, project_id):
 def test_apply_breakdown_unknown_project_404(client):
     r = client.post("/api/projects/424242/apply-breakdown", json={"draft": VALID_DRAFT})
     assert r.status_code == 404
+
+
+# -- llm_keep_alive pass-through ----------------------------------------------
+
+
+def test_keep_alive_not_sent_by_default(client, llm, project_id):
+    """An unset llm_keep_alive must add nothing to the request — strict
+    OpenAI-compatible providers can reject unknown fields."""
+    configure_llm(client, llm)
+    llm.queue(json.dumps(VALID_DRAFT))
+    r = client.post(
+        "/api/breakdown", json={"project_id": project_id, "script_text": "INT. X"}
+    )
+    assert r.status_code == 200, r.text
+    assert "keep_alive" not in llm.requests[0]
+
+
+def test_keep_alive_setting_passes_through_as_integer(client, llm, project_id):
+    """llm_keep_alive="0" → keep_alive: 0 on the chat call (Ollama unloads the
+    model from VRAM immediately — the shared-GPU story)."""
+    configure_llm(client, llm)
+    r = client.put("/api/settings", json={"values": {"llm_keep_alive": "0"}})
+    assert r.status_code == 200, r.text
+    llm.queue(json.dumps(VALID_DRAFT))
+    r = client.post(
+        "/api/breakdown", json={"project_id": project_id, "script_text": "INT. X"}
+    )
+    assert r.status_code == 200, r.text
+    assert llm.requests[0]["keep_alive"] == 0
+
+
+def test_keep_alive_duration_string_passes_verbatim(client, llm, project_id):
+    configure_llm(client, llm)
+    client.put("/api/settings", json={"values": {"llm_keep_alive": "10m"}})
+    llm.queue(json.dumps(VALID_DRAFT))
+    r = client.post(
+        "/api/breakdown", json={"project_id": project_id, "script_text": "INT. X"}
+    )
+    assert r.status_code == 200, r.text
+    assert llm.requests[0]["keep_alive"] == "10m"
+
+
+def test_keep_alive_cleared_setting_stops_sending(client, llm, project_id):
+    configure_llm(client, llm)
+    client.put("/api/settings", json={"values": {"llm_keep_alive": "0"}})
+    client.put("/api/settings", json={"values": {"llm_keep_alive": ""}})
+    llm.queue(json.dumps(VALID_DRAFT))
+    r = client.post(
+        "/api/breakdown", json={"project_id": project_id, "script_text": "INT. X"}
+    )
+    assert r.status_code == 200, r.text
+    assert "keep_alive" not in llm.requests[0]

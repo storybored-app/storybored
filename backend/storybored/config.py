@@ -69,6 +69,17 @@ class Settings(BaseSettings):
     llm_base_url: str = ""
     llm_api_key: str = ""
     llm_model: str = ""
+    llm_keep_alive: str = Field(
+        default="",
+        description=(
+            "Optional: passed through as the keep_alive field on chat calls "
+            "when set. Ollama-specific: '0' unloads the model from VRAM "
+            "immediately after each call (good on a GPU shared with the "
+            "render engine), '10m' keeps it warm. Leave empty for the "
+            "provider default, and leave empty for non-Ollama providers — "
+            "strict OpenAI-compatible endpoints may reject unknown fields."
+        ),
+    )
     lora_factory_dir: str = ""
 
     @property
