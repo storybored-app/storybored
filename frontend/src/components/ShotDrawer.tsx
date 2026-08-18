@@ -324,6 +324,8 @@ export function ShotDrawer({
         description: form?.description,
         shot_type: form?.shot_type,
         camera: form?.camera,
+        // so the enhanced prompt is written in the selected engine's style
+        workflow_id: imageWf || undefined,
       }),
     onSuccess: (r) => {
       setForm((f) => (f ? { ...f, description: r.description } : f));
@@ -342,6 +344,8 @@ export function ShotDrawer({
         dialogue: form?.dialogue,
         motion_prompt: form?.motion_prompt,
         frame_position: form?.frame_position === "last" ? "last" : "first",
+        // so the motion draft is written in the selected video engine's style
+        workflow_id: videoWf || undefined,
       }),
     onSuccess: (r) => {
       setForm((f) => (f ? { ...f, motion_prompt: r.motion_prompt } : f));

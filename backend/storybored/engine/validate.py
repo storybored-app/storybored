@@ -18,6 +18,8 @@ import argparse
 import json
 from pathlib import Path
 
+from storybored.engine.registry import MAX_PROMPT_GUIDE_EXAMPLES
+
 #: manifest parameter types the engine understands (docs/WORKFLOWS.md)
 KNOWN_PARAM_TYPES = {"prompt", "seed", "int", "float", "string", "image"}
 
@@ -160,6 +162,32 @@ def _check_injections(report: PackReport, manifest: dict, graph: dict) -> None:
                 )
 
 
+def _check_prompt_guide(report: PackReport, manifest: dict) -> None:
+    """Mirror registry.sanitize_prompt_guide as WARNs — a malformed guide is
+    silently dropped at load time, so the linter is where authors learn why."""
+    guide = manifest.get("prompt_guide")
+    if guide is None:
+        return
+    style = guide.get("style") if isinstance(guide, dict) else None
+    if not isinstance(style, str) or not style.strip():
+        report.warn(
+            "prompt_guide will be ignored — it must be an object with a non-empty "
+            'string "style" (and optional "examples" list)'
+        )
+        return
+    examples = guide.get("examples", [])
+    if not isinstance(examples, list):
+        report.warn('prompt_guide "examples" must be a list of strings — it will be ignored')
+        return
+    if any(not isinstance(e, str) or not e.strip() for e in examples):
+        report.warn("prompt_guide has non-string/empty examples — they will be dropped")
+    if len(examples) > MAX_PROMPT_GUIDE_EXAMPLES:
+        report.warn(
+            f"prompt_guide has {len(examples)} examples — only the first "
+            f"{MAX_PROMPT_GUIDE_EXAMPLES} are used"
+        )
+
+
 def _check_model_slots(report: PackReport, manifest: dict, graph: dict) -> None:
     for i, slot in enumerate(manifest.get("model_slots") or []):
         if not isinstance(slot, dict):
@@ -256,6 +284,7 @@ def validate_pack(pack_dir: Path) -> PackReport:
     _check_parameters(report, manifest, graph)
     _check_injections(report, manifest, graph)
     _check_model_slots(report, manifest, graph)
+    _check_prompt_guide(report, manifest)
     for cls in manifest.get("required_nodes") or []:
         if not isinstance(cls, str) or not cls:
             report.error("required_nodes entries must be non-empty class-name strings")

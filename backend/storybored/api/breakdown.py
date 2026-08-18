@@ -16,6 +16,7 @@ from storybored.config import Settings
 from storybored.db import get_session
 from storybored.llm.breakdown import BreakdownDraft, breakdown_script
 from storybored.llm.client import LLMError, LLMNotConfiguredError, get_llm_config
+from storybored.llm.guides import resolve_prompt_guide
 from storybored.models import Character, Scene, Shot
 
 router = APIRouter(prefix="/api", tags=["breakdown"])
@@ -48,8 +49,13 @@ def breakdown(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     known_handles = [c.handle for c in session.exec(select(Character)).all()]
+    # Shot descriptions become image prompts — steer them toward the engine
+    # that will render them (the configured default image workflow's guide).
+    guide = resolve_prompt_guide(session, settings, "image")
     try:
-        draft = breakdown_script(config, body.script_text, known_handles, mode=body.mode)
+        draft = breakdown_script(
+            config, body.script_text, known_handles, mode=body.mode, guide=guide
+        )
     except LLMNotConfiguredError as exc:  # pragma: no cover - config resolved above
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except LLMError as exc:

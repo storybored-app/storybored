@@ -25,5 +25,12 @@
       "minimax_h3_video_vae_fp16.safetensors",
       "minimax_h3_audio_vae_fp32.safetensors"
     ]
+  },
+  "prompt_guide": {
+    "style": "MiniMax H3 animates a provided still, so the prompt describes motion and sound only — never re-describe what the frame already shows. One short present-tense paragraph in plain sentences: how the subject moves, how the camera moves, how the environment lives (wind, rain, steam, flicker). Modest, physically plausible motion reads best — subtle beats grand. Because the model generates synchronized audio, end with one sentence starting \"Audio:\" describing the soundscape, with any spoken dialogue quoted inside it.",
+    "examples": [
+      "She lowers the mug and turns toward the window as headlights sweep across the glass. The camera pushes in slowly from a medium close-up; steam curls off the coffee and rain streaks the pane. Audio: low diner hum, rain against glass, a distant engine passing.",
+      "The fisherman leans into the rope, hauling hand over hand as the deck pitches gently with the swell. The camera holds steady while spray drifts through the frame and gulls cross the gray sky behind him. Audio: wind over the deck, creaking rigging, waves slapping the hull, he mutters \"almost there\"."
+    ]
   }
 }

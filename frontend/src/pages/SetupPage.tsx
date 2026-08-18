@@ -5,6 +5,8 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
+  ChevronDown,
+  ChevronRight,
   Cpu,
   ExternalLink,
   FlaskConical,
@@ -78,6 +80,8 @@ function StatusLine({
     unreachable: "Nothing answered at that address. Is it running? Right port?",
     unrecognized:
       "Something answered, but it doesn't look like the right service — double-check the address and port.",
+    unauthorized:
+      "It wants an API key. Enter one below — it's used for tests once saved, so hosted services may show this until you finish setup.",
     error: "It answered with a server error — check its logs.",
     not_configured: "No address given.",
     missing: "That folder doesn't exist on this machine.",
@@ -86,6 +90,84 @@ function StatusLine({
     <p className="text-sm text-status-failed">
       {copy[status] ?? `Status: ${status}`}
     </p>
+  );
+}
+
+function CodeLine({ children }: { children: string }) {
+  return (
+    <code className="block select-all overflow-x-auto whitespace-nowrap rounded-md border border-line/60 bg-ink-950 px-2.5 py-1.5 font-mono text-[11px] text-paper">
+      {children}
+    </code>
+  );
+}
+
+/** Collapsible "I don't have an LLM yet" panel: verified Ollama setup. */
+function OllamaGuide({ onUseDefaults }: { onUseDefaults: () => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-lg border border-line/60 bg-ink-900">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-1.5 px-4 py-2.5 text-left text-xs font-medium text-paper hover:text-amber-350"
+      >
+        {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        I don't have an LLM yet — set one up
+      </button>
+      {open && (
+        <div className="space-y-3 border-t border-line/60 px-4 py-3 text-xs leading-relaxed text-mist">
+          <p className="text-fog">
+            The easiest path is{" "}
+            <a
+              href="https://ollama.com/download"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-0.5 text-amber-450 hover:text-amber-350"
+            >
+              Ollama <ExternalLink size={11} />
+            </a>
+            , a free local LLM runner. Install it, pull the model, done:
+          </p>
+          <div className="space-y-1.5">
+            <p className="font-medium text-paper">Linux</p>
+            <CodeLine>curl -fsSL https://ollama.com/install.sh | sh</CodeLine>
+            <p className="font-medium text-paper">macOS / Windows</p>
+            <p className="text-fog">
+              Download and run the installer from{" "}
+              <a
+                href="https://ollama.com/download"
+                target="_blank"
+                rel="noreferrer"
+                className="text-amber-450 hover:text-amber-350"
+              >
+                ollama.com/download
+              </a>
+              .
+            </p>
+            <p className="font-medium text-paper">Then, on any platform</p>
+            <CodeLine>ollama pull qwen3:14b</CodeLine>
+          </div>
+          <p className="text-fog">
+            That's StoryBored's default model. Ollama then answers at{" "}
+            <code>http://127.0.0.1:11434/v1</code> —{" "}
+            <button
+              onClick={onUseDefaults}
+              className="font-medium text-amber-450 hover:text-amber-350"
+            >
+              fill those values in below
+            </button>{" "}
+            and hit Test.
+          </p>
+          <p className="text-fog">
+            Honest resource note: qwen3:14b is a 9.3 GB download (4-bit
+            quantized) and needs roughly that much free RAM or VRAM to run —
+            it's fine on CPU, just slower. Ollama unloads idle models after a
+            few minutes, so it can share a GPU with the render engine. And if
+            you'd rather not run one at all, any OpenAI-compatible hosted API
+            works instead: paste its base URL, model name, and API key.
+          </p>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -416,14 +498,21 @@ export function SetupPage() {
             <Badge tone="fog">optional</Badge>
           </h2>
           <p className="mt-1 text-xs leading-relaxed text-fog">
-            Powers three things: breaking a script into a shot list, the{" "}
-            <em>Enhance</em> button that polishes rough shot notes, and drafting
-            motion prompts for video. Skip it and you simply write those
+            Worth setting up: it powers script breakdown, story-vibes boards,
+            the <em>Enhance</em> button that polishes rough shot notes, and
+            motion drafts for video. Skip it and you simply write those
             yourself. Any OpenAI-compatible service works — a local Ollama at{" "}
             <code>http://127.0.0.1:11434/v1</code> is the easiest path, and it
             runs fine without a big GPU.
           </p>
           <div className="mt-4 space-y-3.5">
+            <OllamaGuide
+              onUseDefaults={() => {
+                setLlmUrl("http://127.0.0.1:11434/v1");
+                setLlmModel("qwen3:14b");
+                setLlmProbe(null);
+              }}
+            />
             <Field label="Service URL">
               <Input
                 value={llmUrl}

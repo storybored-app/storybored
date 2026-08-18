@@ -196,6 +196,33 @@ wall. When you land on the (empty) Projects screen, click **Load demo
 project** to get "The Last Lighthouse", a small two-scene board you can play
 with immediately.
 
+### Getting an LLM (the writing assistant)
+
+The writing assistant is optional but worth two minutes: script breakdown,
+story-vibes boards, the *Enhance* button, and motion-prompt drafts all hang
+off it. Without one you write every prompt yourself; with one, rough notes
+become polished, engine-aware prompts.
+
+The easiest path is [Ollama](https://ollama.com), a free local LLM runner:
+
+```bash
+# Linux
+curl -fsSL https://ollama.com/install.sh | sh
+# macOS / Windows: run the installer from https://ollama.com/download
+
+# then pull StoryBored's default model
+ollama pull qwen3:14b
+```
+
+Point the wizard (or Settings) at `http://127.0.0.1:11434/v1` with model
+`qwen3:14b`. Honest resource note: qwen3:14b is a **9.3 GB download**
+(4-bit quantized) and needs roughly that much free RAM or VRAM to run — CPU
+works too, just slower. Ollama unloads idle models after a few minutes, so
+it happily shares a GPU with the render engine.
+
+No local horsepower or patience? Any **OpenAI-compatible hosted API** works
+instead — enter its base URL, model name, and API key.
+
 > **Running on your network.** StoryBored listens on `127.0.0.1` (localhost)
 > only by default, so it is reachable just from the machine it runs on. It has
 > **no login and no authentication** — anyone who can reach the server can drive

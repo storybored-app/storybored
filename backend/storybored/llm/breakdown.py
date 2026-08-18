@@ -13,6 +13,7 @@ import re
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from storybored.llm.client import LLMConfig, LLMError, chat
+from storybored.llm.guides import guide_block
 
 TEMPERATURE = 0.3
 
@@ -137,10 +138,24 @@ RETRY_NUDGE = (
 _FENCE_RE = re.compile(r"^```[a-zA-Z0-9_-]*\s*\n(.*?)\n?```\s*$", re.DOTALL)
 
 
-def build_system_prompt(known_handles: list[str], mode: str = "script") -> str:
+#: lead-in that frames the engine guide for shot descriptions (both modes:
+#: vibes descriptions ARE render prompts; script descriptions still seed them)
+GUIDE_LEAD_IN = (
+    "The shot descriptions you write will be rendered as stills by the image "
+    "engine below — lean toward its preferred prompt style when describing shots:"
+)
+
+
+def build_system_prompt(
+    known_handles: list[str], mode: str = "script", guide: dict | None = None
+) -> str:
     handles = ", ".join(sorted(h.lstrip("@") for h in known_handles)) or "(none yet)"
     template = VIBES_SYSTEM_PROMPT if mode == "vibes" else SYSTEM_PROMPT
-    return template.format(schema=DRAFT_SCHEMA, handles=handles)
+    prompt = template.format(schema=DRAFT_SCHEMA, handles=handles)
+    block = guide_block(guide)
+    if block:
+        prompt += "\n" + GUIDE_LEAD_IN + "\n" + block
+    return prompt
 
 
 def _strip_fences(text: str) -> str:
@@ -169,15 +184,20 @@ def parse_draft(text: str) -> BreakdownDraft:
 
 
 def breakdown_script(
-    config: LLMConfig, script_text: str, known_handles: list[str], mode: str = "script"
+    config: LLMConfig,
+    script_text: str,
+    known_handles: list[str],
+    mode: str = "script",
+    guide: dict | None = None,
 ) -> BreakdownDraft:
     """One LLM call (plus one retry on unparseable output) → validated draft.
 
     mode "script" = 1st-AD breakdown of a formatted screenplay; mode "vibes" =
     freeform story → invented coverage with render-ready shot descriptions.
+    ``guide`` is the default image engine's prompt guide (llm/guides.py).
     """
     messages = [
-        {"role": "system", "content": build_system_prompt(known_handles, mode)},
+        {"role": "system", "content": build_system_prompt(known_handles, mode, guide)},
         {"role": "user", "content": script_text},
     ]
     content = chat(config, messages, temperature=TEMPERATURE)

@@ -24,5 +24,12 @@
     "CLIPLoader.clip_name": ["qwen3vl_4b_fp8_scaled.safetensors"],
     "VAELoader.vae_name": ["qwen_image_vae.safetensors"],
     "LoraLoader.lora_name": ["(Krea 2) 8-Step Turbo Distill Rank 64 V2026.1.safetensors"]
+  },
+  "prompt_guide": {
+    "style": "Krea 2 reads flowing photographic prose, not tag lists. Write one present-tense paragraph that names the subject and what they are doing, states each character's wardrobe outright, then describes the light source and its quality, and the lens and framing in natural sentences (\"a medium close-up, head and shoulders, on an 85mm lens with shallow depth of field\"). Concrete nouns and physical detail beat style keywords — never use comma-separated tags, prompt weights, or quality boilerplate.",
+    "examples": [
+      "A weathered fisherman in a yellow oilskin coat hauls a dripping rope across the deck of a small trawler at dawn. Flat overcast light turns the sea to pewter, spray hanging in the cold air. A wide shot on a 35mm lens holds the whole deck against a low horizon, the composition tilted slightly with the swell.",
+      "A young violinist in a plain black dress stands alone on a rehearsal stage, bow paused above the strings. A single warm work light overhead carves her out of the surrounding dark, dust drifting through the beam. Medium shot on a 50mm lens, shallow depth of field, the empty seats dissolving into soft shadow behind her."
+    ]
   }
 }

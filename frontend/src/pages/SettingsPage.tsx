@@ -950,8 +950,9 @@ export function SettingsPage() {
       <section className="mb-6 rounded-xl border border-line bg-ink-900/40 p-5">
         <h2 className="text-sm font-semibold">Writing assistant</h2>
         <p className="mt-1 text-xs text-fog">
-          Any OpenAI-compatible service works — local or hosted. Used only for script
-          breakdowns.
+          Any OpenAI-compatible service works — local or hosted. Powers script
+          breakdown, story-vibes boards, Enhance, and motion drafts. Once a key
+          is saved, Test uses it too.
         </p>
         {settingsLoading ? (
           <div className="mt-4 space-y-3">

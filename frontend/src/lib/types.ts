@@ -393,6 +393,7 @@ const STATUS_LABELS: Record<string, string> = {
   not_configured: "not set up",
   unreachable: "can't be reached",
   unrecognized: "something answered, but it doesn't look like the right service",
+  unauthorized: "it wants an API key — check the key in Settings",
   error: "reachable, but reporting a server error",
   missing: "folder not found",
 };

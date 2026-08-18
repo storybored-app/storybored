@@ -30,6 +30,53 @@ log = logging.getLogger("storybored.engine")
 #: repo-level workflows dir (…/storybored/workflows)
 REPO_WORKFLOWS_DIR = Path(__file__).resolve().parents[3] / "workflows"
 
+#: most examples a manifest ``prompt_guide`` may carry into system prompts
+MAX_PROMPT_GUIDE_EXAMPLES = 3
+
+
+def sanitize_prompt_guide(manifest: dict, pack_id: str) -> None:
+    """Normalize the optional ``prompt_guide`` manifest key in place.
+
+    Expected shape: ``{"style": "<one-paragraph description>", "examples":
+    ["<good prompt>", ...]}`` (examples optional, capped at
+    ``MAX_PROMPT_GUIDE_EXAMPLES``). Lenient like the rest of pack loading —
+    a malformed guide is logged and dropped/trimmed, never fatal, so a bad
+    guide can't sink an otherwise working pack.
+    """
+    guide = manifest.get("prompt_guide")
+    if guide is None:
+        return
+    style = guide.get("style") if isinstance(guide, dict) else None
+    if not isinstance(style, str) or not style.strip():
+        log.warning(
+            'workflow pack %s: ignoring malformed prompt_guide — expected '
+            '{"style": "<paragraph>", "examples": [...]} with a non-empty style',
+            pack_id,
+        )
+        manifest.pop("prompt_guide", None)
+        return
+    examples = guide.get("examples", [])
+    if not isinstance(examples, list):
+        log.warning(
+            "workflow pack %s: prompt_guide.examples must be a list of strings — ignoring it",
+            pack_id,
+        )
+        examples = []
+    clean = [e.strip() for e in examples if isinstance(e, str) and e.strip()]
+    if len(clean) != len(examples):
+        log.warning(
+            "workflow pack %s: dropping non-string/empty prompt_guide examples", pack_id
+        )
+    if len(clean) > MAX_PROMPT_GUIDE_EXAMPLES:
+        log.warning(
+            "workflow pack %s: prompt_guide has %d examples — keeping the first %d",
+            pack_id,
+            len(clean),
+            MAX_PROMPT_GUIDE_EXAMPLES,
+        )
+        clean = clean[:MAX_PROMPT_GUIDE_EXAMPLES]
+    manifest["prompt_guide"] = {"style": style.strip(), "examples": clean}
+
 
 @dataclass
 class WorkflowPack:
@@ -59,6 +106,7 @@ def load_packs(settings: Settings) -> dict[str, WorkflowPack]:
                 log.warning("skipping workflow pack %s: %s", manifest_path.parent, exc)
                 continue
             pack_id = str(manifest.get("id") or manifest_path.parent.name)
+            sanitize_prompt_guide(manifest, pack_id)
             packs[pack_id] = WorkflowPack(id=pack_id, dir=manifest_path.parent, manifest=manifest)
     return packs
 
