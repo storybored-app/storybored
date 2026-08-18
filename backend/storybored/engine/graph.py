@@ -149,7 +149,13 @@ def _splice_lora_chain(
 def inject_characters(
     graph: dict, injection: Mapping[str, Any] | None, characters: Sequence[Any]
 ) -> list[str]:
-    """Splice one LoraLoader per character into the graph (mutates it).
+    """Splice one LoRA loader per character into the graph (mutates it).
+
+    The loader class defaults to ``LoraLoader``; a pack whose seam node has no
+    clip output (a bare UNETLoader, or a ``LoraLoaderModelOnly`` chain — the
+    Z-Image / Qwen-Image graphs, whose text encoder never routes through the
+    LoRA chain) declares ``character_injection.class_type:
+    "LoraLoaderModelOnly"`` so characters splice on the model path only.
 
     While at least one character LoRA is active, every node in
     ``disable_nodes`` gets strength_model/strength_clip zeroed.
@@ -168,6 +174,7 @@ def inject_characters(
         tail,
         "char_lora_",
         [(c.lora_name, float(getattr(c, "lora_strength", 1.0))) for c in active],
+        class_type=str(injection.get("class_type") or "LoraLoader"),
     )
 
     for node_id in injection.get("disable_nodes") or []:

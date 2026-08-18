@@ -3,6 +3,7 @@
   "name": "MiniMax H3 — Image to Video",
   "kind": "video",
   "description": "Animates an approved still into a short clip (~5s at the default length) with synchronized generated audio. 12-step res_multistep sampling at 864x576, 24fps.",
+  "license_note": "MiniMax H3 Community License: the weight-use grant excludes the United States, EU, UK and South Korea, and commercial use is capped at $20M annual revenue. The default video model file is an NVFP4 build that runs only on NVIDIA Blackwell (RTX 50-series) GPUs — swap the video model in Settings for other cards.",
   "graph": "graph.json",
   "parameters": [
     {"key": "prompt", "label": "Motion prompt", "type": "prompt", "node": "6", "input": "prompt"},

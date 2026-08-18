@@ -378,6 +378,10 @@ async def list_workflows(
             "name": manifest.get("name", pack.id),
             "kind": kind,
             "description": manifest.get("description", ""),
+            # honest-disclosure line for packs whose model license carries
+            # real-world caveats (territory exclusions, revenue caps, revocable
+            # grants) — shown in Settings rows and the setup wizard
+            "license_note": str(manifest.get("license_note") or ""),
             "parameters": manifest.get("parameters", []),
             "supports_characters": bool(manifest.get("character_injection")),
             "supports_loras": bool(lora_injection_spec(manifest)),

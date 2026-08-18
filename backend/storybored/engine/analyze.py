@@ -273,9 +273,6 @@ def _seam(graph: dict, kind: str, warnings: list[str]) -> dict:
         for node_id in loaders + chain
     ]
     field = "character_injection" if kind == "image" else "lora_injection"
-    # video LoRAs take over only the model path — CLIP rarely routes through
-    # the chain in video graphs (see the shipped minimax pack)
-    class_type = "LoraLoaderModelOnly" if kind == "video" else None
     suggested: dict | None = None
     if chain:
         suggested = {"after_node": chain[-1], "confidence": "high"}
@@ -289,8 +286,16 @@ def _seam(graph: dict, kind: str, warnings: list[str]) -> dict:
         suggested = {"after_node": loaders[0], "confidence": "low"}
     if suggested is not None:
         suggested["field"] = field
-        if class_type:
-            suggested["class_type"] = class_type
+        # Splices must be model-only when the seam node has no clip output:
+        # every video graph (CLIP rarely routes through the chain — see the
+        # shipped minimax pack), and image graphs whose seam is a bare
+        # UNETLoader or a LoraLoaderModelOnly chain (Z-Image / Qwen-Image
+        # style, where the text encoder never routes through the LoRA chain).
+        # A full LoraLoader there would reference a clip output that doesn't
+        # exist. CheckpointLoaderSimple / LoraLoader seams keep the default.
+        seam_class = str(graph[suggested["after_node"]].get("class_type", ""))
+        if kind == "video" or seam_class in ("UNETLoader", "LoraLoaderModelOnly"):
+            suggested["class_type"] = "LoraLoaderModelOnly"
     return {"candidates": candidates, "suggested": suggested}
 
 

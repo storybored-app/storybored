@@ -3,6 +3,7 @@
   "name": "Krea 2 — Realism stack",
   "kind": "image",
   "description": "8-step turbo-distilled Krea 2 with a community realism LoRA stack: filter bypass, realism, detailer, snapshot and realism-engine LoRAs chained for photographic stills.",
+  "license_note": "Krea 2 Community License: commercial use only below $1M trailing-12-month revenue, and the license is revocable on 30 days notice. Fully open alternatives: the Z-Image and Qwen-Image engines (Apache 2.0).",
   "graph": "graph.json",
   "parameters": [
     {"key": "prompt", "label": "Prompt", "type": "prompt", "node": "6", "input": "text"},

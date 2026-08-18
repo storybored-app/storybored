@@ -214,6 +214,7 @@ async def setup_probe(
                     "kind": pack.manifest.get("kind", "image"),
                     "available": availability["available"],
                     "missing_models": availability["missing_models"],
+                    "license_note": str(pack.manifest.get("license_note") or ""),
                 }
             )
 

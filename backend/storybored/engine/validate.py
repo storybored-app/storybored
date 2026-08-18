@@ -141,12 +141,14 @@ def _check_injections(report: PackReport, manifest: dict, graph: dict) -> None:
             _check_node_ref(report, graph, ci["after_node"], "character_injection.after_node")
             for node_id in ci.get("disable_nodes") or []:
                 _check_node_ref(report, graph, node_id, "character_injection.disable_nodes")
+            _check_injection_class(report, ci, "character_injection")
     li = manifest.get("lora_injection")
     if li is not None:
         if not isinstance(li, dict) or not li.get("after_node"):
             report.error("lora_injection must be an object with 'after_node'")
         else:
             _check_node_ref(report, graph, li["after_node"], "lora_injection.after_node")
+            _check_injection_class(report, li, "lora_injection")
     fc = manifest.get("frame_conditioning")
     if fc is not None:
         if not isinstance(fc, dict) or not fc.get("node"):
@@ -160,6 +162,27 @@ def _check_injections(report: PackReport, manifest: dict, graph: dict) -> None:
                     f"frame_conditioning node '{fc['node']}' has no '{first}' input "
                     "to move onto the last-frame input"
                 )
+
+
+#: LoRA loader classes an injection seam may splice (engine/graph.py)
+_INJECTION_CLASSES = ("LoraLoader", "LoraLoaderModelOnly")
+
+
+def _check_injection_class(report: PackReport, spec: dict, what: str) -> None:
+    class_type = spec.get("class_type")
+    if class_type is not None and class_type not in _INJECTION_CLASSES:
+        report.error(
+            f"{what}.class_type must be one of {', '.join(_INJECTION_CLASSES)} "
+            f"(got {class_type!r}) — the engine can only splice LoRA loaders"
+        )
+
+
+def _check_license_note(report: PackReport, manifest: dict) -> None:
+    """license_note is a UI string — warn on a non-string so it isn't silently
+    dropped by the registry (which str()s whatever it finds)."""
+    note = manifest.get("license_note")
+    if note is not None and (not isinstance(note, str) or not note.strip()):
+        report.warn("license_note should be a non-empty string — it will be ignored")
 
 
 def _check_prompt_guide(report: PackReport, manifest: dict) -> None:
@@ -285,6 +308,7 @@ def validate_pack(pack_dir: Path) -> PackReport:
     _check_injections(report, manifest, graph)
     _check_model_slots(report, manifest, graph)
     _check_prompt_guide(report, manifest)
+    _check_license_note(report, manifest)
     for cls in manifest.get("required_nodes") or []:
         if not isinstance(cls, str) or not cls:
             report.error("required_nodes entries must be non-empty class-name strings")
