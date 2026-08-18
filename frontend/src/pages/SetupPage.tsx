@@ -772,6 +772,12 @@ export function SetupPage() {
             StoryBored folder explains the setup. Skip it and you can still
             import ready-made character files any time.
           </p>
+          {engineProbe?.training?.note && (
+            <p className="mt-3 rounded-md border border-line/60 bg-ink-900 px-3 py-2 text-xs leading-relaxed text-mist">
+              <span className="font-medium text-paper">Your GPU: </span>
+              {engineProbe.training.note}
+            </p>
+          )}
           <div className="mt-4 space-y-3.5">
             <Field label="Trainer folder" hint="Path to a lora-factory-style checkout on this machine.">
               <Input

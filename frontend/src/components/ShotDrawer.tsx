@@ -13,8 +13,15 @@ import {
   X,
 } from "lucide-react";
 import { apiDelete, apiGet, apiPatch, apiPost, mediaUrl } from "../lib/api";
-import { healthOk } from "../lib/types";
-import type { BoardProject, Job, Shot, Take, WorkflowManifest } from "../lib/types";
+import { healthOk, loraFamilyLabel } from "../lib/types";
+import type {
+  BoardProject,
+  Character,
+  Job,
+  Shot,
+  Take,
+  WorkflowManifest,
+} from "../lib/types";
 import { useHealth } from "./HealthBanner";
 import { activeVideoJob, shotLabel, videoTake } from "../lib/format";
 import { statusLabel, StatusRing } from "./StatusRing";
@@ -25,6 +32,28 @@ import { Lightbox } from "./Lightbox";
 import { ErrorBoundary } from "./ErrorBoundary";
 
 const AUTOSAVE_MS = 800;
+
+/** Same shape the backend resolves @mentions with (handles stored lowercase). */
+const MENTION_RE = /@([A-Za-z0-9_-]+)/g;
+
+/** Characters cast in a description, resolved against the roster. */
+function mentionedCharacters(
+  description: string,
+  roster: Character[] | undefined,
+): Character[] {
+  if (!roster?.length) return [];
+  const handles = new Set(
+    Array.from(description.matchAll(MENTION_RE), (m) => m[1].toLowerCase()),
+  );
+  return roster.filter((c) => handles.has(c.handle));
+}
+
+/** True when any cast character's LoRA family conflicts with the pack's.
+ *  Unknown family on either side never conflicts (agnostic). */
+function familyConflict(pack: WorkflowManifest, cast: Character[]): boolean {
+  if (!pack.lora_family) return false;
+  return cast.some((c) => c.lora_family && c.lora_family !== pack.lora_family);
+}
 
 interface FormState {
   description: string;
@@ -257,6 +286,13 @@ export function ShotDrawer({
     retry: 1,
   });
 
+  const { data: roster } = useQuery<Character[]>({
+    queryKey: ["characters"],
+    queryFn: () => apiGet<Character[]>("/api/characters"),
+    staleTime: 60_000,
+    retry: 1,
+  });
+
   const imageWorkflows = (workflows ?? []).filter((w) => w.kind === "image");
   const videoWorkflows = (workflows ?? []).filter((w) => w.kind === "video");
   // Preselect the configured default engine, falling back to any available one.
@@ -454,6 +490,10 @@ export function ShotDrawer({
 
   if (!shot || !form) return null;
 
+  // characters cast in the live description — drives the family-compatibility
+  // marks on the engine picker and the chips under the description
+  const cast = mentionedCharacters(form.description, roster);
+
   const imageTakes = (takes ?? []).filter((t) => t.kind === "image");
   const vTake = videoTake({ ...shot, takes: takes ?? shot.takes });
   const vUrl = mediaUrl(vTake?.file_path);
@@ -519,6 +559,28 @@ export function ShotDrawer({
                     rows={3}
                     placeholder="A lighthouse keeper climbs the spiral stairs, lantern in hand…"
                   />
+                  {cast.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {cast.map((c) => (
+                        <span
+                          key={c.id}
+                          className="inline-flex items-center gap-1 rounded-full border border-line bg-ink-850 px-2 py-0.5 text-[10px] text-mist"
+                          title={
+                            c.lora_family
+                              ? `Trained for ${loraFamilyLabel(c.lora_family)} — only ${loraFamilyLabel(c.lora_family)} engines can render this character`
+                              : "No engine family recorded — works with any engine"
+                          }
+                        >
+                          @{c.handle}
+                          {c.lora_family && (
+                            <span className="text-fog">
+                              {loraFamilyLabel(c.lora_family)}
+                            </span>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <div className="mt-1.5 flex items-center justify-between gap-2">
                     <span className="text-[11px] text-fog">
                       {enhance.isPending ? "PromptSmith is polishing your notes…" : ""}
@@ -600,9 +662,35 @@ export function ShotDrawer({
                             {w.name}
                             {w.default ? " (default)" : ""}
                             {w.available === false ? " (unavailable)" : ""}
+                            {familyConflict(w, cast)
+                              ? " (characters not compatible)"
+                              : ""}
                           </option>
                         ))}
                       </Select>
+                      {selectedImageWf && familyConflict(selectedImageWf, cast) && (
+                        <p className="mt-1 text-[11px] leading-relaxed text-amber-450">
+                          {cast
+                            .filter(
+                              (c) =>
+                                c.lora_family &&
+                                c.lora_family !== selectedImageWf.lora_family,
+                            )
+                            .map((c) => `@${c.handle}`)
+                            .join(", ")}{" "}
+                          {cast.filter(
+                            (c) =>
+                              c.lora_family &&
+                              c.lora_family !== selectedImageWf.lora_family,
+                          ).length === 1
+                            ? "was"
+                            : "were"}{" "}
+                          trained for a different engine family — this engine
+                          renders with{" "}
+                          {loraFamilyLabel(selectedImageWf.lora_family)}. Switch
+                          engines or remove the mention.
+                        </p>
+                      )}
                     </Field>
                     <ParamFields
                       workflow={selectedImageWf}

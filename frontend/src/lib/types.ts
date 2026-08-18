@@ -82,9 +82,24 @@ export interface Character {
   class_word: string;
   lora_name?: string;
   lora_strength: number;
+  /** Model family the LoRA binds to ("krea2" | "z-image" | "qwen-image" | …).
+   *  null = unknown/agnostic — works with any engine, unchecked. */
+  lora_family?: string | null;
   thumbnail_path?: string | null;
   notes?: string;
   status: CharacterStatus;
+}
+
+/** Human labels for the shipped LoRA families (open vocabulary beyond). */
+export const LORA_FAMILY_LABELS: Record<string, string> = {
+  krea2: "Krea 2",
+  "z-image": "Z-Image",
+  "qwen-image": "Qwen-Image",
+};
+
+/** Human name for a family id; unknown ids pass through, null/"" → "". */
+export function loraFamilyLabel(id?: string | null): string {
+  return id ? (LORA_FAMILY_LABELS[id] ?? id) : "";
 }
 
 export interface Job {
@@ -166,6 +181,8 @@ export interface WorkflowManifest {
   description?: string;
   /** Honest-disclosure line for packs with license caveats ("" = none). */
   license_note?: string;
+  /** Character-LoRA family this pack renders with ("" = family-agnostic). */
+  lora_family?: string;
   parameters?: WorkflowParameter[];
   available?: boolean;
   missing_models?: string[];
@@ -325,6 +342,8 @@ export interface SetupProbe {
     license_note: string;
   }[];
   recommended: SetupRecommended | null;
+  /** Character-training capability for the reported VRAM (sourced numbers). */
+  training?: { vram_gb: number | null; note: string };
   /** Tier name → its VRAM floor in GiB. */
   tiers: Record<string, number>;
 }

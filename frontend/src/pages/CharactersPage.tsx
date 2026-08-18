@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
@@ -24,8 +24,14 @@ import {
   apiPost,
   mediaUrl,
 } from "../lib/api";
-import { healthOk } from "../lib/types";
-import type { Character, Job, ShootoutRow, TrainingInfo } from "../lib/types";
+import { healthOk, loraFamilyLabel, LORA_FAMILY_LABELS } from "../lib/types";
+import type {
+  Character,
+  Job,
+  ShootoutRow,
+  TrainingInfo,
+  WorkflowManifest,
+} from "../lib/types";
 import { handleFromName, isValidHandle, suggestTrigger } from "../lib/format";
 import { EmptyState, ErrorState, Skeleton } from "../components/EmptyState";
 import { Modal } from "../components/Modal";
@@ -146,12 +152,37 @@ function ImportTab({ onDone }: { onDone: () => void }) {
   const [loraName, setLoraName] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [strength, setStrength] = useState("1.0");
+  // "" = unspecified (works anywhere, unchecked); defaulted below to the
+  // default image engine's family once the workflows load
+  const [family, setFamily] = useState("");
+  const [familyTouched, setFamilyTouched] = useState(false);
 
   const { data: available, isError: lorasError } = useQuery<string[]>({
     queryKey: ["available-loras"],
     queryFn: () => apiGet<string[]>("/api/characters/available-loras"),
     retry: 1,
   });
+
+  const { data: workflows } = useQuery<WorkflowManifest[]>({
+    queryKey: ["workflows"],
+    queryFn: () => apiGet<WorkflowManifest[]>("/api/workflows"),
+    staleTime: 60_000,
+    retry: 1,
+  });
+  const defaultFamily =
+    (workflows ?? []).find((w) => w.kind === "image" && w.default)?.lora_family ??
+    "";
+  useEffect(() => {
+    if (!familyTouched && defaultFamily) setFamily(defaultFamily);
+  }, [defaultFamily, familyTouched]);
+  const familyOptions = Array.from(
+    new Set([
+      ...Object.keys(LORA_FAMILY_LABELS),
+      ...(workflows ?? [])
+        .map((w) => w.lora_family ?? "")
+        .filter((f): f is string => !!f),
+    ]),
+  );
 
   const submit = useMutation({
     mutationFn: async () => {
@@ -174,6 +205,7 @@ function ImportTab({ onDone }: { onDone: () => void }) {
         class_word: identity.class_word.trim() || "person",
         lora_name: finalLoraName,
         lora_strength: Number.parseFloat(strength) || 1.0,
+        lora_family: family || null,
         status: "ready",
       });
     },
@@ -238,16 +270,37 @@ function ImportTab({ onDone }: { onDone: () => void }) {
           </label>
         )}
       </Field>
-      <Field label="Strength" hint="How strongly the character is applied (0.5–1.2 typical).">
-        <Input
-          type="number"
-          step={0.05}
-          min={0}
-          max={2}
-          value={strength}
-          onChange={(e) => setStrength(e.target.value)}
-        />
-      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Strength" hint="How strongly the character is applied (0.5–1.2 typical).">
+          <Input
+            type="number"
+            step={0.05}
+            min={0}
+            max={2}
+            value={strength}
+            onChange={(e) => setStrength(e.target.value)}
+          />
+        </Field>
+        <Field
+          label="Made for engine"
+          hint="Character files only work with the engine family they were trained for."
+        >
+          <Select
+            value={family}
+            onChange={(e) => {
+              setFamilyTouched(true);
+              setFamily(e.target.value);
+            }}
+          >
+            <option value="">Not sure — any engine</option>
+            {familyOptions.map((f) => (
+              <option key={f} value={f}>
+                {loraFamilyLabel(f)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
       <div className="flex justify-end pt-1">
         <Button variant="primary" disabled={!valid} busy={submit.isPending} onClick={() => submit.mutate()}>
           Add character
@@ -1144,7 +1197,14 @@ export function CharactersPage() {
                   <h2 className="truncate text-sm font-semibold text-paper">{c.name}</h2>
                   {statusBadge(c)}
                 </div>
-                <p className="mt-0.5 truncate text-xs text-fog">@{c.handle}</p>
+                <div className="mt-0.5 flex items-center justify-between gap-2">
+                  <p className="truncate text-xs text-fog">@{c.handle}</p>
+                  {c.lora_family && (
+                    <span title={`Works with ${loraFamilyLabel(c.lora_family)} engines`}>
+                      <Badge tone="fog">{loraFamilyLabel(c.lora_family)}</Badge>
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           ))}
