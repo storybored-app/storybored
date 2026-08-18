@@ -182,9 +182,10 @@ reachable any time from Settings → *Setup wizard*):
    install it (the wizard points you at the right docs), or you have **no GPU**
    and want boards-only planning for now.
 2. **Connect the engine** — enter the ComfyUI address and hit *Test*. On
-   success the wizard shows your GPU, its VRAM, what that hardware can do
-   (stills / video / training), and which engine packs are ready vs. missing
-   model files (see [docs/MODELS.md](docs/MODELS.md) for the downloads).
+   success the wizard shows your GPU, its VRAM, its capability tier, **the
+   recommended engines for that tier** with their download sizes (one-click
+   download when the models folder is set), and which engine packs are ready
+   vs. missing model files (see [docs/MODELS.md](docs/MODELS.md)).
 3. **Writing assistant (optional)** — an OpenAI-compatible LLM for script
    breakdown, prompt polishing and motion drafts; the wizard lists the models
    your service offers. Skip it and you write those yourself.
@@ -211,14 +212,21 @@ curl -fsSL https://ollama.com/install.sh | sh
 # macOS / Windows: run the installer from https://ollama.com/download
 
 # then pull StoryBored's default model
-ollama pull qwen3:14b
+ollama pull qwen3.5:9b
 ```
 
 Point the wizard (or Settings) at `http://127.0.0.1:11434/v1` with model
-`qwen3:14b`. Honest resource note: qwen3:14b is a **9.3 GB download**
-(4-bit quantized) and needs roughly that much free RAM or VRAM to run — CPU
-works too, just slower. Ollama unloads idle models after a few minutes, so
-it happily shares a GPU with the render engine.
+`qwen3.5:9b`. Honest resource note: qwen3.5:9b is a **6.6 GB download**
+(quantized, 256K context) and needs roughly that much free RAM or VRAM to
+run — CPU works too, just slower. Pick by hardware: `qwen3.5:4b` (3.4 GB)
+for small GPUs or CPU-only boxes, `qwen3.5:9b` for most machines,
+`qwen3.5:35b-a3b` (24 GB, fast MoE) if you have 32 GB+ of VRAM. The setup
+wizard suggests the right one for your GPU.
+
+Sharing one GPU between Ollama and the render engine? Ollama already unloads
+idle models after a few minutes; set the `llm_keep_alive` setting to `0` to
+free the VRAM **immediately** after every call instead (Ollama endpoints
+only — leave it empty for other providers).
 
 No local horsepower or patience? Any **OpenAI-compatible hosted API** works
 instead — enter its base URL, model name, and API key.
@@ -235,18 +243,26 @@ instead — enter its base URL, model name, and API key.
 StoryBored itself is lightweight — the GPU requirements come from the engine
 packs you run in ComfyUI. StoryBored ships engine *definitions*, not the
 multi-gigabyte model files they load; before your first shot, make sure your
-ComfyUI has the files each pack needs. **[docs/MODELS.md](docs/MODELS.md)**
-explains what to download and where — and both the setup wizard and Settings
-list any missing models per pack so you know exactly what's absent. The wizard
-also reads your GPU's VRAM straight from the engine and tells you which tier
-below you're in.
+ComfyUI has the files each pack needs. The setup wizard reads your GPU's VRAM
+straight from the engine, tells you which tier you're in, **recommends the
+verified engines for that tier**, and (when the models folder is configured)
+downloads their files in one click. **[docs/MODELS.md](docs/MODELS.md)** has
+the full matrix with file lists, sizes and honest speed numbers.
 
-| What you're doing                  | GPU                                        | Notes                                    |
-| ---------------------------------- | ------------------------------------------ | ---------------------------------------- |
-| Stills (default Krea 2 engine)     | NVIDIA, **16 GB+ VRAM**                    | 8-step distilled sampling                |
-| Video (MiniMax H3 image-to-video)  | NVIDIA, more VRAM than stills — 24 GB class recommended | ~5 s clips with audio       |
-| Character training (LoRA)          | NVIDIA, 24 GB class recommended            | A multi-hour job; queues behind gens     |
-| Board / UI / animatic export only  | none                                       | ffmpeg is bundled via `imageio-ffmpeg`   |
+| VRAM        | Tier        | Stills engine                | Video engine                    | LLM suggestion   |
+| ----------- | ----------- | ---------------------------- | ------------------------------- | ---------------- |
+| under 6 GB  | board       | — (boards, script AI, animatics still work) | —              | qwen3.5:4b       |
+| 6–11 GB     | stills-lite | Z-Image Turbo (Apache 2.0)   | —                               | qwen3.5:4b       |
+| 12–15 GB    | stills      | Z-Image Turbo (Apache 2.0)   | Wan 2.2 5B (Apache 2.0, silent) | qwen3.5:9b       |
+| 16–23 GB    | stills-hd   | Krea 2 (community license)   | Wan 2.2 5B (Apache 2.0, silent) | qwen3.5:9b       |
+| 24 GB+      | studio      | Qwen-Image 2512 (Apache 2.0) | Wan 2.2 14B (Apache 2.0, silent) — MiniMax H3 with audio as a labeled power option | qwen3.5:9b (35b-a3b at 32 GB+) |
+
+Character training wants a 24 GB-class card and is a multi-hour job that
+queues behind generations. Licensing philosophy: **the recommended path is
+safe-by-default** (Apache 2.0 wherever a tier has an Apache winner), and
+engines whose licenses carry real caveats — territory exclusions, revenue
+caps, revocable grants — stay available but wear their caveat as a visible
+notice in Settings and the wizard.
 
 ComfyUI can run on a different machine than StoryBored — set `COMFYUI_URL`
 accordingly. All jobs share a single GPU lane, so a long training run simply

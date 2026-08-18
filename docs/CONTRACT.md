@@ -44,6 +44,10 @@ storybored/
     krea2-basic/       manifest.json graph.json
     krea2-realism/     manifest.json graph.json
     minimax-h3-i2v/    manifest.json graph.json
+    z-image-turbo/     manifest.json graph.json
+    qwen-image-2512/   manifest.json graph.json
+    wan22-ti2v-5b/     manifest.json graph.json
+    wan22-i2v-14b/     manifest.json graph.json
   docs/CONTRACT.md  docs/WORKFLOWS.md  docs/TRAINING.md
   scripts/dev.sh              # runs backend (reload) + vite dev concurrently
 ```
@@ -66,6 +70,9 @@ COMFY_FLUSH_CMD=                     # optional shell cmd between model-family s
 LLM_BASE_URL=                        # OpenAI-compatible, e.g. http://127.0.0.1:11434/v1
 LLM_API_KEY=
 LLM_MODEL=
+LLM_KEEP_ALIVE=                      # optional, Ollama only: keep_alive sent on chat calls
+                                     # when set ("0" = unload from VRAM after each call);
+                                     # leave empty for non-Ollama providers
 LORA_FACTORY_DIR=                    # optional: path to a lora-factory checkout
 ```
 Unset optional vars = feature gracefully degrades (UI shows "not configured", never crashes).
@@ -224,7 +231,8 @@ Infra:
   community-sourced files. When `comfy_models_dir` is set, each `models` slot row
   additionally carries `large_files: [str]` — dropdown options whose on-disk size
   exceeds 24 GB (the documented offload lesson; stat failures are silently skipped).
-  Also per workflow: `default: bool` (per kind, from default_image/video_workflow), the pack's baked
+  Also per workflow: `license_note: str` ("" when the manifest declares
+  none — see the Workflow packs section), `default: bool` (per kind, from default_image/video_workflow), the pack's baked
   `loras: [{node, lora_name, strength, baked_strength, enabled, disabled_with_character}]`
   in chain order with user overrides applied, `added_loras: [{lora_name, strength,
   enabled}]`, `loras_modified: bool`, the pack's swappable
@@ -284,7 +292,11 @@ Infra:
   only when the candidate targets the configured base URL's host (same spirit
   as the key-exfil guard in llm/client.py).
   Runtime-editable (DB wins over env) keys: comfyui_url (PUT flushes the
-  /object_info cache), llm_base_url, llm_api_key, llm_model, lora_factory_dir,
+  /object_info cache), llm_base_url, llm_api_key, llm_model, llm_keep_alive
+  (Ollama keep_alive passed through on chat calls ONLY when non-empty — an
+  explicit opt-in, since strict OpenAI-compatible providers may reject
+  unknown fields; integer strings are sent as integers, so "0" =
+  unload-from-VRAM-now on shared-GPU boxes), lora_factory_dir,
   comfy_loras_dir (where imported character LoRA uploads are copied; ~-expanded),
   comfy_models_dir (base ComfyUI models directory; enables in-app downloads +
   size warnings), default_image_workflow, default_video_workflow, style_loras,
@@ -296,12 +308,25 @@ Infra:
   without persisting anything (omitted → effective settings). Returns
   `{comfy: {status, url, gpus: [{name, vram_gb|null}], tier},
   llm: {status, url, models: [id…]}, trainer: {status, dir}, ffmpeg,
-  workflows: [{id, name, kind, available, missing_models}] (only when comfy ok),
-  tiers: {stills_min_vram_gb: 16, video_min_vram_gb: 24}}`.
+  workflows: [{id, name, kind, available, missing_models, license_note}]
+  (only when comfy ok), recommended, tiers: {studio: 24, "stills-hd": 16,
+  stills: 12, "stills-lite": 6}}` (tier name → VRAM floor in GiB).
   GPU rows come straight from ComfyUI /system_stats (never invented; unknown
-  VRAM → null). `tier` ∈ board|stills|video: best-GPU VRAM rounded to whole GiB,
-  ≥24 → video (video engines + training-class), ≥16 → stills, else/no GPU/engine
-  down → board (board, script breakdown and animatic assembly still work).
+  VRAM → null). `tier` ∈ board|stills-lite|stills|stills-hd|studio: best-GPU
+  VRAM rounded to whole GiB against the floors above; below every floor, no
+  GPU, or engine down → board (board, script breakdown and animatic assembly
+  still work). `recommended` is null unless comfy is ok, else
+  `{tier, image: rec|null, video: rec|null, llm: "<ollama tag>"}` where each
+  rec is `{id, name, kind, available, missing_models, download_bytes
+  (catalog-verified total for the missing files), downloadable (every missing
+  file has a verified source), license_note}` for the tier's verified pack
+  pick (docs/MODELS.md matrix: stills-lite/stills → z-image-turbo, stills-hd
+  → krea2-basic, studio → qwen-image-2512; video from stills up →
+  wan22-ti2v-5b, studio → wan22-i2v-14b; board → none). The `llm` tag is
+  chosen by best-GPU VRAM: <12 GiB qwen3.5:4b, 12–31 qwen3.5:9b, ≥32
+  qwen3.5:35b-a3b. Recommendations preselect, never lock: the wizard's
+  Finish writes them to default_image/video_workflow only when those
+  settings are still unset.
   JSON-valued settings, validated on PUT: `style_loras` (list of {lora_name, strength?,
   enabled?} layered into every image render), `engine_loras` (object: pack id → list
   of baked-node overrides {node, strength?, enabled?} and/or appended {lora_name,
@@ -335,6 +360,11 @@ Infra:
   `LoraLoader` node after `after_node`: new node's model/clip inputs ← after_node
   outputs 0/1; then every OTHER node that referenced `[after_node,0]`/`[after_node,1]`
   is rewired to the new node. Chain multiple characters in sequence.
+  `character_injection.class_type: "LoraLoaderModelOnly"` switches the splice
+  to model-only (no clip input/strength, only output 0 rewired) — required
+  when the seam node has no clip output (bare `UNETLoader` / model-only
+  chains: the Z-Image and Qwen-Image packs). The analyzer suggests it from
+  the seam node's class.
   `disable_nodes`: set strength_model/strength_clip to 0 while a character LoRA is
   active (style LoRAs that fight identity). Prompt text: replace each `@handle` with
   `"{trigger} {class_word}"` before writing the prompt param.
@@ -355,6 +385,13 @@ Infra:
 - **Frame conditioning** (video packs): manifest `frame_conditioning {node,
   first, last}`; shot.frame_position="last" moves the sampler's first-frame
   image input onto the last-frame input so the clip ends on the still.
+- **License notes**: optional manifest `license_note` (string) — an honest
+  disclosure line for packs whose model license carries caveats (territory
+  exclusions, revenue caps, revocable grants, hardware-locked files).
+  Surfaced verbatim by GET /api/workflows and /api/setup/probe rows
+  (`license_note`, "" when absent) and rendered as a small warning in the
+  Settings engine row and the setup wizard's engine list. Never blocks
+  anything — disclosure, not enforcement.
 - **Prompt guides** (llm/guides.py): optional manifest `prompt_guide
   {style: "<one-paragraph prompting description>", examples: [≤3 strings]}`
   teaches the writing assistant the pack's prompting dialect. Shape is
@@ -454,6 +491,9 @@ detail; UI hides the feature behind a "configure in Settings" hint.
 All prompt-assembly paths (breakdown/story-vibes, Enhance, generate-motion) append the
 active render engine's `prompt_guide` to the system prompt when the pack declares one
 (see the Workflow packs section and llm/guides.py).
+When the `llm_keep_alive` setting is non-empty, every chat call carries it as the
+`keep_alive` field (integers as integers) — Ollama's per-request VRAM-retention knob;
+never sent when unset, so strict OpenAI-compatible providers see an unchanged payload.
 
 ## Trainer adapter (training/lora_factory.py)
 
@@ -526,9 +566,14 @@ Routes:
   from Settings and the health banner. Steps: path choice ("I have an engine" /
   "I need to install one" / "no GPU — boards only") → engine URL + Test
   (GPU/VRAM/tier + pack availability via /api/setup/probe with candidate
-  params) → LLM (model dropdown from the probe; skippable) → trainer dir
-  (skippable) → summary; Finish PUTs only the settings the user actually set,
-  plus `setup_complete=1`.
+  params, plus the probe's `recommended` block: the tier's image/video packs
+  with missing-file download sizes, a one-click Download-missing button when
+  comfy_models_dir is set, and per-pack `license_note` warnings) → LLM (model
+  dropdown from the probe; the Ollama guide suggests the probe's recommended
+  tag; skippable) → trainer dir (skippable) → summary; Finish PUTs only the
+  settings the user actually set, plus `setup_complete=1`, and preselects the
+  recommended packs as default_image/video_workflow — only when those
+  settings are still unset (recommendations preselect, never lock).
 - Feature gating matches what /api/health reports: the train-from-photos tab
   shows a "configure in Settings" panel when the trainer isn't ok (never a
   wizard that 503s after photo upload), and Enhance / motion-draft buttons are

@@ -5,6 +5,58 @@ small ComfyUI graph plus a manifest (see [WORKFLOWS.md](WORKFLOWS.md)) — a few
 kilobytes. The actual generation is done by multi-gigabyte model files that live
 in **your ComfyUI**, and those are what you download separately.
 
+## What can my GPU do?
+
+The setup wizard reads your GPU's VRAM from the engine, sorts you into a
+**tier**, and recommends the verified engine for it — this table is that
+logic on paper. Every recommendation is a preselection, never a lock: any
+pack your ComfyUI can run stays selectable. Speed numbers are sourced
+community/vendor measurements on the named card, not promises.
+
+| VRAM | Tier | Recommended stills engine | Recommended video engine | Downloads | License | Measured speed |
+| --- | --- | --- | --- | --- | --- | --- |
+| under 6 GB | `board` | — | — | — | — | boards, script AI and animatic export work without a GPU |
+| 6–11 GB | `stills-lite` | **Z-Image Turbo** (`z-image-turbo`) | — | ~12.2 GB | Apache 2.0 | ~15–20 s per 1024² still (RTX 4060, with offloading at 6–8 GB) |
+| 12–15 GB | `stills` | **Z-Image Turbo** (`z-image-turbo`) | **Wan 2.2 5B** (`wan22-ti2v-5b`) | ~12.2 GB + ~18.1 GB | Apache 2.0 | stills under 10 s (RTX 3060 12 GB) |
+| 16–23 GB | `stills-hd` | **Krea 2** (`krea2-basic`) | **Wan 2.2 5B** (`wan22-ti2v-5b`) | ~19.1 GB + ~18.1 GB | Krea 2 Community (see notice) | ~13 s per 1024² still at 8 steps (RTX 3090) |
+| 24 GB+ | `studio` | **Qwen-Image 2512** (`qwen-image-2512`) | **Wan 2.2 14B** (`wan22-i2v-14b`) | ~30.9 GB + ~38.0 GB | Apache 2.0 | stills ~34–55 s with the Lightning LoRA (RTX 4090D, official Comfy numbers) |
+
+Notes the table can't hold:
+
+- **Z-Image Turbo** is also the *fast, license-clean* alternative at 16 GB+ —
+  roughly twice the speed of Krea 2 per still (~2.3 s on an RTX 4090), Apache
+  licensed, with the largest post-2025 LoRA training ecosystem. Its bf16
+  build (12.3 GB) is a catalog alternate for 16 GB cards.
+- **Wan 2.2 video is silent** — no audio track. The MiniMax H3 pack generates
+  synchronized audio but carries a serious license notice (US/EU/UK/South
+  Korea territory exclusion) and its default file runs only on RTX 50-series
+  cards; it remains available as a clearly labeled power option.
+- **Wan 2.2 5B on 8–11 GB cards**: its official floor is "fits on 8 GB with
+  native offloading". The wizard only *recommends* it from 12 GB up to avoid
+  over-promising — on an 8 GB card, try it manually.
+- **Wan 2.2 14B at ~20 steps** takes ~4 m 20 s per 5 s clip on an RTX 4090;
+  the shipped pack bakes the official lightx2v 4-step LoRAs, which cut the
+  step count 20 → 4 (toggle them off in Settings to run the slow path — then
+  raise steps to 20 and cfg to 3.5).
+- **Character training** wants a 24 GB-class card regardless of tier.
+- Licensing philosophy: recommendations are **safe-by-default** — Apache 2.0
+  wherever a tier has an Apache winner. Engines with license caveats stay
+  available but wear a visible notice (`license_note`) in Settings and the
+  wizard.
+
+### Writing-assistant (LLM) sizing
+
+The wizard also suggests an Ollama model for the writing assistant, by the
+same VRAM reading (the LLM shares the GPU with renders — set
+`llm_keep_alive` to `0` in Settings to free its VRAM immediately after each
+call):
+
+| Best GPU VRAM | Suggested tag | Download | Notes |
+| --- | --- | --- | --- |
+| under 12 GB (or no GPU) | `qwen3.5:4b` | 3.4 GB | 256K context; fine on CPU |
+| 12–31 GB | `qwen3.5:9b` | 6.6 GB | 256K context; the default |
+| 32 GB+ | `qwen3.5:35b-a3b` | 24 GB | MoE, 3B active — fast decode |
+
 **Settings is your shopping list.** If a pack references a file your ComfyUI
 can't see, StoryBored marks the pack **unavailable** and lists each missing file
 in **Settings** with everything the catalog knows about it: the destination
@@ -99,6 +151,64 @@ If you'd rather not chase the stack, start with `krea2-basic` — and remember
 you can toggle individual realism LoRAs off in Settings; a LoRA you've
 disabled is no longer required for the pack to count as available.
 
+### Z-Image Turbo (`z-image-turbo`)
+
+All verified, hosted by **Comfy-Org** in
+[`Comfy-Org/z_image_turbo`](https://huggingface.co/Comfy-Org/z_image_turbo),
+all **Apache 2.0** — the whole pack is one-click downloadable:
+
+| File | Folder | Size |
+| --- | --- | --- |
+| `z_image_turbo_int8_convrot.safetensors` | `diffusion_models` | 6.2 GB |
+| `qwen_3_4b_fp8_mixed.safetensors` | `text_encoders` | 5.6 GB |
+| `ae.safetensors` | `vae` | 335 MB |
+
+Catalog alternates (swap via the pack's *Base model* slot in Settings):
+`z_image_turbo_bf16.safetensors` (12.3 GB, full precision, for 16 GB+ cards)
+and `z_image_turbo_nvfp4.safetensors` (4.5 GB, **RTX 50-series/Blackwell
+only**). Needs ComfyUI ≥ 0.3.75 (Z-Image nodes are core since then).
+
+### Qwen-Image 2512 (`qwen-image-2512`)
+
+All verified: model files in
+[`Comfy-Org/Qwen-Image_ComfyUI`](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI),
+the Lightning LoRA in
+[`lightx2v/Qwen-Image-Lightning`](https://huggingface.co/lightx2v/Qwen-Image-Lightning);
+the entire stack is **Apache 2.0**:
+
+| File | Folder | Size |
+| --- | --- | --- |
+| `qwen_image_2512_fp8_e4m3fn.safetensors` | `diffusion_models` | 20.4 GB |
+| `qwen_2.5_vl_7b_fp8_scaled.safetensors` | `text_encoders` | 9.4 GB |
+| `qwen_image_vae.safetensors` | `vae` | 254 MB — **same file the Krea 2 packs use**, one download serves both |
+| `Qwen-Image-Lightning-8steps-V2.0-bf16.safetensors` | `loras` | 850 MB |
+
+Needs ComfyUI ≥ 0.3.49 (Qwen-Image nodes are core since then). In practice
+fp8 model + fp8 text encoder sit around 86% of a 24 GB card.
+
+### Wan 2.2 video packs (`wan22-ti2v-5b`, `wan22-i2v-14b`)
+
+All verified, hosted by **Comfy-Org** in
+[`Comfy-Org/Wan_2.2_ComfyUI_Repackaged`](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged),
+all **Apache 2.0**. Both packs share the text encoder; the VAEs differ
+(that's a Wan quirk, not a mistake):
+
+| File | Folder | Size | Used by |
+| --- | --- | --- | --- |
+| `wan2.2_ti2v_5B_fp16.safetensors` | `diffusion_models` | 10.0 GB | 5B |
+| `wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors` | `diffusion_models` | 14.3 GB | 14B |
+| `wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors` | `diffusion_models` | 14.3 GB | 14B |
+| `wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors` | `loras` | 1.2 GB | 14B |
+| `wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors` | `loras` | 1.2 GB | 14B |
+| `umt5_xxl_fp8_e4m3fn_scaled.safetensors` | `text_encoders` | 6.7 GB | both |
+| `wan2.2_vae.safetensors` | `vae` | 1.4 GB | 5B |
+| `wan_2.1_vae.safetensors` | `vae` | 254 MB | 14B |
+
+The 14B pack loads its two expert models **sequentially** (high-noise for
+the early steps, low-noise for the late ones), so a 24 GB card never holds
+both at once. Wan 2.2 output is **silent** — the animatic exporter gives
+those clips silence, like stills. Wan nodes are ComfyUI core (summer 2025+).
+
 ### MiniMax H3 video pack (`minimax-h3-i2v`)
 
 Animates an approved still into a short clip with generated audio. Text
@@ -129,10 +239,9 @@ model dropdowns and warns on anything over 24 GB.
 
 ## VRAM expectations
 
-Unchanged from the [README](../README.md#hardware-expectations): stills on the
-default Krea 2 engine want an NVIDIA card with **16 GB+ VRAM**; MiniMax H3
-video wants more — **24 GB class recommended**; character training likewise
-24 GB class. The board, UI and animatic export need no GPU at all.
+See [What can my GPU do?](#what-can-my-gpu-do) at the top — that matrix *is*
+the sizing guide, and the setup wizard applies it automatically. The board,
+UI and animatic export need no GPU at all.
 
 ## Custom nodes are a separate requirement
 

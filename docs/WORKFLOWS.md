@@ -136,12 +136,13 @@ API export keeps only ids, so keep the editor-format `.json` around as your
 | `graph` | yes | Filename of the API-format graph, relative to the pack folder. Conventionally `graph.json`. |
 | `parameters` | yes | The knobs StoryBored is allowed to turn. Each entry maps a UI parameter onto one node input: the engine literally does `graph[node]["inputs"][input] = value`. Fields per entry: `key` (unique within the pack), optional `label` (UI text; defaults to the key), `type` (see below), `node` (node id string), `input` (input name on that node), optional `default`. |
 | `output_node` | yes | Id of the `SaveImage` / `SaveVideo` node. StoryBored rewrites its `filename_prefix` per take and reads results from ComfyUI history for this node. |
-| `character_injection` | no | Where `@character` LoRAs get spliced in (image packs; see next section). Omit it and the pack simply ignores characters. |
+| `character_injection` | no | Where `@character` LoRAs get spliced in (image packs; see next section). Omit it and the pack simply ignores characters. Add `"class_type": "LoraLoaderModelOnly"` when the seam node has no clip output (a bare `UNETLoader`, or a model-only LoRA chain — the Z-Image/Qwen-Image graphs): characters then splice on the model path only, instead of referencing a clip output that doesn't exist. |
 | `lora_injection` | no | Where user-appended LoRAs splice in when the pack has no `character_injection` (video packs): `{"after_node": "1", "class_type": "LoraLoaderModelOnly"}`. `class_type` defaults to `LoraLoader`; model-only loaders take over only the model path (no clip). |
 | `model_slots` | no | Loader inputs users may swap from Settings: `[{"key": "unet", "label": "Base model", "node": "1", "input": "unet_name"}]`. The UI lists the engine's dropdown enum for each slot; choices are stored in the `engine_models` setting and written onto the input at render time. |
 | `frame_conditioning` | no | Video packs whose sampler accepts both a first- and a last-frame image: `{"node": "6", "first": "first_frame", "last": "last_frame"}`. Enables the shot-level "still anchors first/last frame" toggle — "last" moves whatever feeds the first input onto the last input. |
 | `required_models` | no | Map of `"<ClassType>.<input_name>"` → list of model filenames the graph needs. Validated against ComfyUI `/object_info` enums (cached 60 s); misses mark the pack unavailable with the missing names listed. Availability checks the **effective** set: a user's Settings model swap replaces the baked filename, and a baked LoRA the user toggled off is not required. |
 | `required_nodes` | no | Extra node **class names** to require beyond what the graph already references (rarely needed — every `class_type` in your graph is checked automatically). Missing classes mark the pack unavailable with a "missing custom nodes" list, so users learn they need a node pack, not a model file. |
+| `license_note` | no | One honest sentence (or two) about real-world caveats in the pack's **model license** — territory exclusions, revenue caps, revocable grants, hardware-locked default files. Shown as a small warning line in the pack's Settings row and in the setup wizard's engine list. Leave it out for clean licenses (Apache/MIT); don't use it for marketing. The shipped Krea 2 packs (community license: sub-$1M revenue, revocable) and `minimax-h3-i2v` (US/EU/UK/South-Korea territory exclusion + Blackwell-only default file) carry examples. |
 | `prompt_guide` | no | Teaches the writing assistant how *your model* wants to be prompted: `{"style": "<one-paragraph description>", "examples": ["<good prompt>", ...]}` (examples optional, max 3). Injected into every LLM prompt-assembly pass — Enhance, script/story-vibes breakdown, motion drafts — whenever your pack is the engine that will render the result. A malformed guide is logged and ignored, never fatal. See "Teach the assistant your model's prompt style" below. |
 
 ### Parameter types
@@ -172,7 +173,13 @@ Video packs can also declare `lora_injection` (users append video LoRAs from
 Settings), `model_slots` (swap the video UNET for a finetune), and
 `frame_conditioning` (let the still anchor the END of the clip instead of the
 start) — see the manifest field table above and the shipped minimax pack,
-which uses all three.
+which uses all three. Only declare `frame_conditioning` when the graph's
+sampler/latent node **really has** a last-frame input: the shipped Wan 2.2
+packs honestly omit it (their latent nodes take a start image only), so the
+frame-position toggle simply doesn't appear for them. `wan22-i2v-14b` is the
+shipped example of a **dual-expert** graph: two UNETLoaders declared as two
+`model_slots`, two chained `KSamplerAdvanced` passes, one seed parameter on
+the first (noise-adding) sampler.
 
 ## Character injection, explained
 
@@ -205,6 +212,18 @@ Prompt side: `@sam` in the description becomes Sam's `"{trigger} {class_word}"`
 (e.g. `"zxsam person"`) before the prompt is written into the graph — the
 trigger token is what the LoRA was trained to respond to.
 
+**Model-only seams.** The mechanics above assume the seam node has both a
+MODEL and a CLIP output (a checkpoint loader or full `LoraLoader` chain). In
+graphs where the text encoder never routes through the LoRA chain — Z-Image
+and Qwen-Image style, where the seam is a bare `UNETLoader` or a
+`LoraLoaderModelOnly` — declare
+`"character_injection": {"after_node": "...", "class_type":
+"LoraLoaderModelOnly"}`. Characters (and style/engine LoRAs, which reuse the
+same seam) then splice as model-only loaders: no `clip` input, no
+`strength_clip`, only output 0 rewired. This is correct for those model
+families — their LoRAs are transformer-only. The import wizard suggests the
+right class automatically from the seam node's type.
+
 ## Teach the assistant your model's prompt style (`prompt_guide`)
 
 Every image/video model family has a prompting dialect — some want flowing
@@ -236,9 +255,11 @@ Packs without a guide simply get the generic prompting rules — nothing breaks.
 A malformed guide is logged and ignored at load (`validate-pack` warns about
 the exact problem), so it can never sink an otherwise working pack.
 
-The three shipped packs carry guides you can crib from: the Krea 2 packs
-describe photographic-prose stills prompting, and `minimax-h3-i2v` describes
-motion-prose with its `Audio:` line convention.
+The shipped packs carry guides you can crib from: the Krea 2, Z-Image and
+Qwen-Image packs describe photographic-prose stills prompting (Qwen's adds
+its verbatim-text-rendering convention), the Wan 2.2 packs describe silent
+motion-prose, and `minimax-h3-i2v` describes motion-prose with its `Audio:`
+line convention.
 
 ## Runtime LoRA layers: what users can change without touching your pack
 
@@ -389,6 +410,17 @@ The shipped packs assume:
   ComfyUI reports it missing exactly like an uninstalled node pack.
 - `CreateVideo`, `SaveVideo`, `VAEDecodeAudio` — ComfyUI core video/audio
   nodes (present since the video-type support added in spring 2025).
+
+The four tier-recommended packs need **no custom nodes at all** — every class
+they use is ComfyUI core, with these version floors:
+
+- `z-image-turbo` — Z-Image support (`ModelSamplingAuraFlow` with the
+  `lumina2` CLIP type) is core since **ComfyUI 0.3.75**.
+- `qwen-image-2512` — Qwen-Image support (`qwen_image` CLIP type) is core
+  since **ComfyUI 0.3.49**.
+- `wan22-ti2v-5b` / `wan22-i2v-14b` — `Wan22ImageToVideoLatent` /
+  `WanImageToVideo` are core since the Wan 2.2 release (summer 2025). An
+  older ComfyUI reports them missing exactly like an uninstalled node pack.
 
 ## Checklist before sharing a pack
 
