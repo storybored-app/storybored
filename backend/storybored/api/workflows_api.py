@@ -16,6 +16,7 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -25,7 +26,12 @@ from storybored.engine import registry
 from storybored.engine.analyze import analyze_graph, is_api_format, is_ui_format
 from storybored.engine.catalog import load_catalog, model_file_info
 from storybored.engine.comfy_client import ComfyClient, clear_object_info_cache
-from storybored.engine.graph import parse_engine_loras, parse_engine_models
+from storybored.engine.graph import (
+    apply_engine_lora_overrides,
+    apply_model_overrides,
+    parse_engine_loras,
+    parse_engine_models,
+)
 from storybored.engine.validate import validate_pack, write_required_models
 from storybored.models import Job
 
@@ -56,6 +62,42 @@ async def list_workflows(
         engine_loras,
         engine_models,
         comfy_models_dir=effective_setting(session, settings, "comfy_models_dir"),
+    )
+
+
+@router.get("/workflows/{workflow_id}/graph")
+def export_workflow_graph(
+    workflow_id: str,
+    request: Request,
+    effective: bool = False,
+    session: Session = Depends(get_session),
+):
+    """Download a pack's ComfyUI graph (API format) — importable straight back
+    into ComfyUI. ``?effective=true`` first applies the user's engine
+    customizations (model swaps + LoRA toggles/appends from Settings), so the
+    file matches what StoryBored would actually submit. Per-shot splices
+    (characters, style LoRAs, prompt text) are render-time and not included."""
+    settings = request.app.state.settings
+    pack = registry.get_pack(settings, workflow_id)
+    if pack is None:
+        raise HTTPException(status_code=404, detail=f"unknown workflow '{workflow_id}'")
+    graph = pack.load_graph()
+    suffix = "api"
+    if effective:
+        engine_loras = parse_engine_loras(
+            effective_setting(session, settings, "engine_loras")
+        ).get(workflow_id, [])
+        engine_models = parse_engine_models(
+            effective_setting(session, settings, "engine_models")
+        ).get(workflow_id, {})
+        apply_model_overrides(graph, pack.manifest, engine_models)
+        apply_engine_lora_overrides(graph, engine_loras)
+        suffix = "effective.api"
+    return JSONResponse(
+        graph,
+        headers={
+            "Content-Disposition": f'attachment; filename="{workflow_id}.{suffix}.json"'
+        },
     )
 
 

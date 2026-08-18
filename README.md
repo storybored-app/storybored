@@ -54,6 +54,9 @@ animatic MP4.
 - **Import workflows from the UI** — drop a ComfyUI API-format export into the
   Settings wizard: prompt, seed, size, output and LoRA seam are auto-detected
   (confirm or correct each), and it becomes an engine — no manifest by hand.
+  And it works both ways: **export any engine back out** as standard ComfyUI
+  API JSON — with your model swaps and LoRA edits applied — and drop it
+  straight into ComfyUI. Nothing is locked in.
 - **LoRAs and models without JSON surgery** — every engine's built-in LoRA
   stack is visible and editable in Settings (toggle, re-strength, append,
   one-click reset to pack defaults) — video engines take extra LoRAs too — you

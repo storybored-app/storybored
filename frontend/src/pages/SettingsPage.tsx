@@ -377,6 +377,14 @@ function WorkflowRow({
             <span className="flex-1 text-xs font-medium uppercase tracking-wider text-fog">
               Built-in LoRA stack
             </span>
+            <a
+              className="inline-flex items-center gap-1 text-[11px] text-fog hover:text-amber-450"
+              href={`/api/workflows/${wf.id}/graph?effective=true`}
+              download
+              title="Download this engine's ComfyUI workflow (API format) with your model swaps and LoRA edits applied — imports straight into ComfyUI"
+            >
+              <Download size={12} /> Export workflow
+            </a>
             {wf.loras_modified && (
               <Button size="sm" onClick={() => onSaveLoras(wf.id, [])}>
                 Reset to pack defaults

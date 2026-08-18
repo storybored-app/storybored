@@ -250,6 +250,11 @@ Infra:
   the engine is unreachable (can't compute what's missing).
 - Each `GET /api/workflows` row also carries `removable: bool` — true for
   user-installed packs (`DATA_DIR/workflows`), the only ones DELETE accepts.
+- `GET /api/workflows/{id}/graph` → the pack's ComfyUI graph (API format) as a
+  JSON download (`Content-Disposition` attachment). `?effective=true` first
+  applies the user's `engine_models` swaps + `engine_loras` overrides so the
+  file matches what StoryBored would submit; per-shot splices (characters,
+  style LoRAs, prompt text) are render-time and not included. 404 unknown id.
 - `POST /api/workflows/analyze {graph}` → a proposed manifest draft for an
   uploaded **API-format** graph (the import wizard's first step; offline, no
   ComfyUI). Returns `{kind, node_count, roles, model_slots,
