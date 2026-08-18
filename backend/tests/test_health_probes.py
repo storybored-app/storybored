@@ -111,6 +111,19 @@ def test_comfy_unreachable(tmp_path):
         assert client.get("/api/health").json()["comfy"] == "unreachable"
 
 
+def test_health_is_200_with_nothing_configured(tmp_path):
+    """The Docker HEALTHCHECK probes /api/health and treats any non-2xx as
+    container-unhealthy — a fresh container has no engine/LLM/trainer, so the
+    endpoint must report their absence in the body, never via the status."""
+    with make_client(tmp_path, comfyui_url=unused_port_url()) as client:
+        resp = client.get("/api/health")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert set(body) >= {"comfy", "llm", "trainer", "ffmpeg"}
+        assert body["llm"] == "not_configured"
+        assert body["trainer"] == "not_configured"
+
+
 # ------------------------------------------------------------------ llm probe
 
 

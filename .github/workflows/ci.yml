@@ -51,3 +51,24 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  docker:
+    name: Docker image (build + smoke test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t storybored:ci .
+
+      - name: Smoke test — server answers /api/health
+        run: |
+          docker run -d --name sb -p 127.0.0.1:8600:8600 storybored:ci
+          ok=0
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8600/api/health > /dev/null; then ok=1; break; fi
+            sleep 1
+          done
+          docker logs sb
+          docker rm -f sb
+          test "$ok" = 1

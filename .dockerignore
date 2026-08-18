@@ -1,0 +1,23 @@
+# Keep the build context lean — only backend/, frontend/ and workflows/ are
+# copied into the image (see Dockerfile).
+.git
+.github
+.venv
+venv
+data
+.env
+node_modules
+frontend/node_modules
+frontend/dist
+backend/tests
+**/__pycache__
+**/*.pyc
+**/*.egg-info
+*.safetensors
+docs
+assets
+scripts
+*.md
+Dockerfile
+docker-compose.yml
+.dockerignore

@@ -1,0 +1,57 @@
+# StoryBored in a container.
+#
+# ComfyUI stays OUTSIDE the container — StoryBored is API-only by design and
+# talks to whatever ComfyUI you point COMFYUI_URL at. From inside the
+# container, "this machine" is host.docker.internal (Docker Desktop provides
+# it on macOS/Windows; the extra_hosts line below adds it on Linux).
+#
+#   docker compose up -d          # then open http://localhost:8600
+#
+# What works in-container: the board, stills/video via COMFYUI_URL, the LLM
+# writing assistant (same host.docker.internal trick), animatic export.
+# Character training and the in-app model downloader need shared filesystems
+# with the trainer / ComfyUI — see "Docker" in the README before uncommenting
+# the optional mounts below; without them those two features degrade to a
+# friendly "configure in Settings" hint.
+
+services:
+  storybored:
+    build: .
+    image: storybored
+    container_name: storybored
+    ports:
+      # Localhost-only by default. StoryBored has NO login and no
+      # authentication — anyone who can reach it can drive your GPU, read
+      # your media, and change settings. Swap to the LAN line only on a
+      # network you trust, and never expose it directly to the public
+      # internet.
+      - "127.0.0.1:8600:8600"
+      # - "8600:8600"   # LAN: reachable from other devices on your network
+    volumes:
+      # All state (database, media, exports, user-installed packs).
+      - ./data:/data
+      #
+      # OPTIONAL — model downloader: mount ComfyUI's models dir and set the
+      # matching env var below, and Settings' "Download" buttons write model
+      # files straight into it. Same idea for the LoRA copy dir.
+      # - /path/to/ComfyUI/models:/comfy/models
+      # - /path/to/ComfyUI/models/loras:/comfy/loras
+      #
+      # OPTIONAL — trainer checkout (see README for why a mount alone is
+      # usually not enough to train inside a container):
+      # - /path/to/lora-factory:/trainer
+    environment:
+      COMFYUI_URL: ${COMFYUI_URL:-http://host.docker.internal:8188}
+      # Optional writing assistant (OpenAI-compatible; for one on this
+      # machine use http://host.docker.internal:11434/v1)
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      # Pair these with the optional mounts above (container paths):
+      COMFY_MODELS_DIR: ${COMFY_MODELS_DIR:-}
+      COMFY_LORAS_DIR: ${COMFY_LORAS_DIR:-}
+      LORA_FACTORY_DIR: ${LORA_FACTORY_DIR:-}
+    extra_hosts:
+      # Makes host.docker.internal resolve on Linux; harmless elsewhere.
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

@@ -173,6 +173,45 @@ instead of training your own.
 
 Open <http://localhost:8600>.
 
+### Docker
+
+Prefer a container? A multi-stage build (frontend compiled in, non-root,
+healthcheck) ships in the repo:
+
+```bash
+git clone https://github.com/storybored-app/storybored.git
+cd storybored
+docker compose up -d
+```
+
+Open <http://localhost:8600> — the compose file binds to localhost only by
+default (same no-authentication warning as above; edit the `ports:` line to
+expose it on a trusted LAN). All state lands in `./data` on the host.
+
+ComfyUI stays **outside** the container — StoryBored only ever speaks to it
+over HTTP. In the first-run wizard (or `COMFYUI_URL`), the address of a
+ComfyUI on the *same machine* is `http://host.docker.internal:8188` — from
+inside the container, `127.0.0.1` would be the container itself. That name
+works out of the box on macOS/Windows, and the compose file's `extra_hosts`
+line adds it on Linux. A ComfyUI on another machine is just its normal URL.
+The same trick applies to a local LLM for the writing assistant
+(`http://host.docker.internal:11434/v1` for Ollama).
+
+What works in a container:
+
+| Feature | In-container | Notes |
+| --- | --- | --- |
+| Board, takes, approvals, animatic export | ✅ | no extra setup |
+| Stills / video rendering | ✅ | via `COMFYUI_URL` as above |
+| Writing assistant (LLM) | ✅ | via `LLM_BASE_URL` as above |
+| In-app model downloader | ⚠️ mount required | needs ComfyUI's `models/` dir mounted into the container (`COMFY_MODELS_DIR`); otherwise you get download links + target folders instead — nothing breaks |
+| Character training | ❌ usually | the trainer is an external checkout with its own venv/GPU stack that StoryBored shells into; inside this GPU-less image that stack isn't runnable, so the tab shows its "configure in Settings" hint. Train with a non-Docker install (or import ready-made LoRAs — that works fine in-container) |
+
+The compose file carries commented volume-mount examples for the model
+downloader and trainer cases; containerized installs usually just leave
+`COMFY_MODELS_DIR` / `LORA_FACTORY_DIR` unset and let the graceful
+degradation do its thing.
+
 ### First run
 
 Until an engine is connected, StoryBored opens a short **setup wizard** (also
