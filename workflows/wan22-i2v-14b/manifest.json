@@ -1,0 +1,40 @@
+{
+  "id": "wan22-i2v-14b",
+  "name": "Wan 2.2 — 14B Image to Video",
+  "kind": "video",
+  "description": "Wan 2.2 I2V-A14B (fp8, Apache 2.0): the highest-quality license-clean video engine. Two expert models sample in sequence — high-noise for motion, low-noise for detail — with the lightx2v 4-step LoRAs baked for speed. Silent ~5 s clips at 16 fps; 24 GB-class card recommended. LoRAs you append in Settings apply to the low-noise (detail) expert.",
+  "graph": "graph.json",
+  "parameters": [
+    {"key": "prompt", "label": "Motion prompt", "type": "prompt", "node": "6", "input": "text"},
+    {"key": "first_frame", "label": "First frame", "type": "image", "node": "5", "input": "image"},
+    {"key": "length", "label": "Length (frames, 16fps)", "type": "int", "node": "8", "input": "length", "default": 81},
+    {"key": "width", "label": "Width", "type": "int", "node": "8", "input": "width", "default": 640},
+    {"key": "height", "label": "Height", "type": "int", "node": "8", "input": "height", "default": 640},
+    {"key": "seed", "type": "seed", "node": "sampler_high", "input": "noise_seed"}
+  ],
+  "output_node": "12",
+  "model_slots": [
+    {"key": "unet_high", "label": "High-noise expert", "node": "unet_high", "input": "unet_name"},
+    {"key": "unet_low", "label": "Low-noise expert", "node": "unet_low", "input": "unet_name"}
+  ],
+  "lora_injection": {"after_node": "lora_low", "class_type": "LoraLoaderModelOnly"},
+  "required_models": {
+    "UNETLoader.unet_name": [
+      "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+      "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors"
+    ],
+    "CLIPLoader.clip_name": ["umt5_xxl_fp8_e4m3fn_scaled.safetensors"],
+    "VAELoader.vae_name": ["wan_2.1_vae.safetensors"],
+    "LoraLoaderModelOnly.lora_name": [
+      "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+      "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors"
+    ]
+  },
+  "prompt_guide": {
+    "style": "Wan 2.2 animates a provided still, so the prompt describes motion only — never re-describe what the frame already shows, and never mention sound (the model generates silent clips). One short present-tense paragraph in plain sentences: how the subject moves, how the camera moves (push in, pan, orbit, hold), and how the environment lives — wind, rain, steam, drifting smoke, flickering light. The 14B model rewards a named emotional register (\"determined\", \"weary\") and holds character identity well through larger moves, but modest, physically plausible motion still reads best.",
+    "examples": [
+      "The warrior stands still, eyes full of determination, as the camera slowly circles from front to profile. His cloak stirs in the wind and dust drifts low across the ground between his boots.",
+      "She laughs and pushes off the railing, walking toward the camera as it pulls back to keep her in a medium shot. Neon reflections slide across the wet pavement and steam rises from a grate behind her."
+    ]
+  }
+}

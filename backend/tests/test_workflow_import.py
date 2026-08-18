@@ -37,7 +37,18 @@ def param(manifest: dict, key: str) -> dict:
 # -- analysis heuristics vs the shipped packs ---------------------------------
 
 
-@pytest.mark.parametrize("pack_id", ["krea2-basic", "krea2-realism", "minimax-h3-i2v"])
+@pytest.mark.parametrize(
+    "pack_id",
+    [
+        "krea2-basic",
+        "krea2-realism",
+        "minimax-h3-i2v",
+        "z-image-turbo",
+        "qwen-image-2512",
+        "wan22-ti2v-5b",
+        "wan22-i2v-14b",
+    ],
+)
 def test_analyze_rederives_shipped_manifest(client, pack_id):
     """Each shipped graph must analyze back to its own manifest's mappings."""
     manifest, graph = load_pack_files(pack_id)
@@ -79,12 +90,20 @@ def test_analyze_rederives_shipped_manifest(client, pack_id):
         length = param(manifest, "length")
         assert roles["length"]["suggested"]["node"] == length["node"]
         assert roles["length"]["suggested"]["input"] == length["input"]
-        assert a["frame_conditioning"] == manifest["frame_conditioning"]
+        # Wan packs honestly omit frame_conditioning (their latent nodes take
+        # a start image only) — the analyzer must agree and detect nothing
+        assert a["frame_conditioning"] == manifest.get("frame_conditioning")
 
     # required_models derivation must agree with each manifest (validate-pack
     # keeps the shipped packs drift-free, so equality is exact)
     assert a["required_models"] == manifest["required_models"]
-    assert a["warnings"] == []
+    if pack_id == "wan22-i2v-14b":
+        # the dual-expert graph has two KSamplerAdvanced nodes, each with a
+        # noise_seed input — the analyzer rightly asks which to randomize
+        # (the manifest points at the high-noise sampler, which it suggested)
+        assert a["warnings"] == ["several seed inputs found — confirm which one to randomize"]
+    else:
+        assert a["warnings"] == []
 
 
 def test_analyze_two_text_encodes_reports_roles(client):

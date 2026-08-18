@@ -1,0 +1,36 @@
+{
+  "id": "qwen-image-2512",
+  "name": "Qwen-Image 2512",
+  "kind": "image",
+  "description": "Qwen-Image 2512 (fp8) with the Lightning 8-step LoRA baked in: best-in-class open photoreal humans and text rendering, entire stack Apache 2.0. Around 31 GB of downloads — wants a 24 GB card. Without the Lightning LoRA the model runs 20 steps at cfg 2.5.",
+  "graph": "graph.json",
+  "parameters": [
+    {"key": "prompt", "label": "Prompt", "type": "prompt", "node": "6", "input": "text"},
+    {"key": "seed", "label": "Seed", "type": "seed", "node": "3", "input": "seed"},
+    {"key": "width", "label": "Width", "type": "int", "node": "5", "input": "width", "default": 1328},
+    {"key": "height", "label": "Height", "type": "int", "node": "5", "input": "height", "default": 1328},
+    {"key": "steps", "label": "Steps", "type": "int", "node": "3", "input": "steps", "default": 8}
+  ],
+  "output_node": "9",
+  "model_slots": [
+    {"key": "unet", "label": "Base model", "node": "4", "input": "unet_name"}
+  ],
+  "character_injection": {
+    "after_node": "lora_lightning",
+    "class_type": "LoraLoaderModelOnly",
+    "disable_nodes": []
+  },
+  "required_models": {
+    "UNETLoader.unet_name": ["qwen_image_2512_fp8_e4m3fn.safetensors"],
+    "CLIPLoader.clip_name": ["qwen_2.5_vl_7b_fp8_scaled.safetensors"],
+    "VAELoader.vae_name": ["qwen_image_vae.safetensors"],
+    "LoraLoaderModelOnly.lora_name": ["Qwen-Image-Lightning-8steps-V2.0-bf16.safetensors"]
+  },
+  "prompt_guide": {
+    "style": "Qwen-Image 2512 wants rich, flowing photographic prose — full sentences, never tag soup. One present-tense paragraph: name the subject and action, state every character's wardrobe, then the light source and its quality, and the lens and framing in natural language. The model excels at rendering text: any signage, labels or on-screen writing should be given verbatim in quotes and it will appear letter-perfect. It rewards specificity — material, texture, and spatial relationships described plainly. Avoid comma-separated tags, prompt weights and quality boilerplate.",
+    "examples": [
+      "A street vendor in a white apron flips skewers over a charcoal grill under a canvas awning at night, smoke curling into the string lights. A hand-painted sign behind him reads \"OPEN TILL LATE\". Medium shot on a 35mm lens, the glowing coals underlighting his face, passersby blurred in the wet street beyond.",
+      "An elderly watchmaker in a gray cardigan bends over his bench, a loupe pressed to one eye, tweezers lifting a gear the size of a grain of rice. A single warm desk lamp pools light on the scattered tools and brass parts. Extreme close-up on a 100mm macro lens, shallow depth of field, dust motes drifting through the beam."
+    ]
+  }
+}

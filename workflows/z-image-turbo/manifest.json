@@ -1,0 +1,35 @@
+{
+  "id": "z-image-turbo",
+  "name": "Z-Image Turbo",
+  "kind": "image",
+  "description": "Z-Image Turbo (Alibaba Tongyi, 6B, Apache 2.0): photoreal stills in 8 steps from a 6.2 GB int8 build — the recommended engine for 6–12 GB cards, and the fastest stills engine at any size. Keep cfg at 1.0; the model is sampler-sensitive.",
+  "graph": "graph.json",
+  "parameters": [
+    {"key": "prompt", "label": "Prompt", "type": "prompt", "node": "6", "input": "text"},
+    {"key": "seed", "label": "Seed", "type": "seed", "node": "3", "input": "seed"},
+    {"key": "width", "label": "Width", "type": "int", "node": "5", "input": "width", "default": 1024},
+    {"key": "height", "label": "Height", "type": "int", "node": "5", "input": "height", "default": 1024},
+    {"key": "steps", "label": "Steps", "type": "int", "node": "3", "input": "steps", "default": 8}
+  ],
+  "output_node": "9",
+  "model_slots": [
+    {"key": "unet", "label": "Base model", "node": "4", "input": "unet_name"}
+  ],
+  "character_injection": {
+    "after_node": "4",
+    "class_type": "LoraLoaderModelOnly",
+    "disable_nodes": []
+  },
+  "required_models": {
+    "UNETLoader.unet_name": ["z_image_turbo_int8_convrot.safetensors"],
+    "CLIPLoader.clip_name": ["qwen_3_4b_fp8_mixed.safetensors"],
+    "VAELoader.vae_name": ["ae.safetensors"]
+  },
+  "prompt_guide": {
+    "style": "Z-Image Turbo reads flowing photographic prose, not tag lists. Write one present-tense paragraph that names the subject and what they are doing, states each character's wardrobe outright, then describes the light source and its quality, and the lens and framing in natural sentences (\"a medium close-up on an 85mm lens, shallow depth of field\"). Concrete nouns and physical detail beat style keywords. Text the image should contain — a sign, a label — goes in quotes and renders literally. Never use comma-separated tags, prompt weights, or quality boilerplate; the model needs no \"masterpiece\" padding and washes out when over-steered.",
+    "examples": [
+      "A night-shift nurse in teal scrubs leans against a hospital corridor wall, coffee cup in both hands, eyes closed. Cold fluorescent panels overhead flatten the scene; a red EXIT sign glows at the corridor's end. Medium shot on a 50mm lens, the empty hallway compressing into darkness behind her.",
+      "A boy in a red raincoat crouches at the edge of a flooded street, releasing a paper boat into the current. Overcast afternoon light, the water pewter-gray and dimpled with drizzle. Low-angle wide shot on a 35mm lens, the boat sharp in the foreground and the row houses soft beyond."
+    ]
+  }
+}

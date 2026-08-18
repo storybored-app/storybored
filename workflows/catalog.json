@@ -97,5 +97,133 @@
     "source": "community",
     "folder": "loras",
     "notes": "Community \"realism engine\" LoRA; reuploads exist on Hugging Face under this exact filename. Check the file size before trusting a copy."
+  },
+  "z_image_turbo_int8_convrot.safetensors": {
+    "source": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_int8_convrot.safetensors",
+    "page": "https://huggingface.co/Comfy-Org/z_image_turbo",
+    "size_bytes": 6201001296,
+    "license": "Apache-2.0",
+    "folder": "diffusion_models",
+    "notes": "Z-Image Turbo (Alibaba Tongyi, 6B) int8 build, Comfy-Org repackage — the z-image-turbo pack's default; runs on 8 GB-class cards."
+  },
+  "z_image_turbo_bf16.safetensors": {
+    "source": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors",
+    "page": "https://huggingface.co/Comfy-Org/z_image_turbo",
+    "size_bytes": 12309866400,
+    "license": "Apache-2.0",
+    "folder": "diffusion_models",
+    "notes": "Z-Image Turbo full-precision bf16 build — optional higher-fidelity alternate for 16 GB+ cards; swap it in via the pack's Base model slot in Settings."
+  },
+  "z_image_turbo_nvfp4.safetensors": {
+    "source": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_nvfp4.safetensors",
+    "page": "https://huggingface.co/Comfy-Org/z_image_turbo",
+    "size_bytes": 4509509600,
+    "license": "Apache-2.0",
+    "folder": "diffusion_models",
+    "notes": "Z-Image Turbo NVFP4 build — runs ONLY on NVIDIA Blackwell (RTX 50-series, sm_120) GPUs. Optional alternate; other cards should use the int8 or bf16 build."
+  },
+  "qwen_3_4b_fp8_mixed.safetensors": {
+    "source": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b_fp8_mixed.safetensors",
+    "page": "https://huggingface.co/Comfy-Org/z_image_turbo",
+    "size_bytes": 5631994051,
+    "license": "Apache-2.0",
+    "folder": "text_encoders",
+    "notes": "Qwen3-4B text encoder for Z-Image, fp8-mixed, Comfy-Org repackage."
+  },
+  "ae.safetensors": {
+    "source": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors",
+    "page": "https://huggingface.co/Comfy-Org/z_image_turbo",
+    "size_bytes": 335304388,
+    "license": "Apache-2.0",
+    "folder": "vae",
+    "notes": "VAE used by Z-Image (the FLUX-family autoencoder filename). If you already have an identical ae.safetensors from a FLUX install, ComfyUI will use it."
+  },
+  "qwen_image_2512_fp8_e4m3fn.safetensors": {
+    "source": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_2512_fp8_e4m3fn.safetensors",
+    "page": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI",
+    "size_bytes": 20430679144,
+    "license": "Apache-2.0",
+    "folder": "diffusion_models",
+    "notes": "Qwen-Image 2512 base model, fp8, Comfy-Org repackage. Wants a 24 GB-class card together with its 7B text encoder."
+  },
+  "qwen_2.5_vl_7b_fp8_scaled.safetensors": {
+    "source": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+    "page": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI",
+    "size_bytes": 9384670680,
+    "license": "Apache-2.0",
+    "folder": "text_encoders",
+    "notes": "Qwen2.5-VL 7B text encoder for Qwen-Image, fp8-scaled, Comfy-Org repackage."
+  },
+  "Qwen-Image-Lightning-8steps-V2.0-bf16.safetensors": {
+    "source": "https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Lightning-8steps-V2.0-bf16.safetensors",
+    "page": "https://huggingface.co/lightx2v/Qwen-Image-Lightning",
+    "size_bytes": 849608296,
+    "license": "Apache-2.0",
+    "folder": "loras",
+    "notes": "Lightning 8-step distillation LoRA for Qwen-Image by lightx2v — cuts sampling from 20 steps at cfg 2.5 to 8 steps at cfg 1."
+  },
+  "wan2.2_ti2v_5B_fp16.safetensors": {
+    "source": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors",
+    "page": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+    "size_bytes": 9999658848,
+    "license": "Apache-2.0",
+    "folder": "diffusion_models",
+    "notes": "Wan 2.2 TI2V-5B hybrid text/image-to-video model (fp16), Comfy-Org repackage. Fits 8 GB-class cards with ComfyUI's native offloading."
+  },
+  "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors": {
+    "source": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+    "page": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+    "size_bytes": 14294742832,
+    "license": "Apache-2.0",
+    "folder": "diffusion_models",
+    "notes": "Wan 2.2 I2V-A14B high-noise expert (fp8) — handles the early, motion-defining sampling steps. The pack needs BOTH experts; they load sequentially."
+  },
+  "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors": {
+    "source": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+    "page": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+    "size_bytes": 14294742832,
+    "license": "Apache-2.0",
+    "folder": "diffusion_models",
+    "notes": "Wan 2.2 I2V-A14B low-noise expert (fp8) — refines detail in the late sampling steps. The pack needs BOTH experts; they load sequentially."
+  },
+  "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors": {
+    "source": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+    "page": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+    "size_bytes": 1226977424,
+    "license": "Apache-2.0",
+    "folder": "loras",
+    "notes": "lightx2v 4-step distillation LoRA for the Wan 2.2 I2V high-noise expert (Comfy-Org repackage) — the official template's turbo path."
+  },
+  "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors": {
+    "source": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+    "page": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+    "size_bytes": 1226977424,
+    "license": "Apache-2.0",
+    "folder": "loras",
+    "notes": "lightx2v 4-step distillation LoRA for the Wan 2.2 I2V low-noise expert (Comfy-Org repackage) — the official template's turbo path."
+  },
+  "umt5_xxl_fp8_e4m3fn_scaled.safetensors": {
+    "source": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+    "page": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+    "size_bytes": 6735906897,
+    "license": "Apache-2.0",
+    "folder": "text_encoders",
+    "notes": "UMT5-XXL text encoder (fp8) shared by every Wan 2.2 model — one download serves both Wan packs."
+  },
+  "wan2.2_vae.safetensors": {
+    "source": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan2.2_vae.safetensors",
+    "page": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+    "size_bytes": 1409400960,
+    "license": "Apache-2.0",
+    "folder": "vae",
+    "notes": "Wan 2.2 VAE — used by the TI2V-5B model only (the 14B experts use the Wan 2.1 VAE)."
+  },
+  "wan_2.1_vae.safetensors": {
+    "source": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors",
+    "page": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+    "size_bytes": 253815318,
+    "license": "Apache-2.0",
+    "folder": "vae",
+    "notes": "Wan 2.1 VAE — used by the Wan 2.2 I2V-A14B experts."
   }
 }

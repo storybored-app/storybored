@@ -1,0 +1,32 @@
+{
+  "id": "wan22-ti2v-5b",
+  "name": "Wan 2.2 — 5B Image to Video",
+  "kind": "video",
+  "description": "Wan 2.2 TI2V-5B (fp16, Apache 2.0): animates an approved still into a ~5 s silent clip at 720p/24 fps. The lightest video engine — fits 8 GB-class cards with ComfyUI's native offloading. 20-step uni_pc sampling; no audio is generated.",
+  "graph": "graph.json",
+  "parameters": [
+    {"key": "prompt", "label": "Motion prompt", "type": "prompt", "node": "6", "input": "text"},
+    {"key": "first_frame", "label": "First frame", "type": "image", "node": "5", "input": "image"},
+    {"key": "length", "label": "Length (frames, 24fps)", "type": "int", "node": "8", "input": "length", "default": 121},
+    {"key": "width", "label": "Width", "type": "int", "node": "8", "input": "width", "default": 1280},
+    {"key": "height", "label": "Height", "type": "int", "node": "8", "input": "height", "default": 704},
+    {"key": "seed", "type": "seed", "node": "9", "input": "seed"}
+  ],
+  "output_node": "12",
+  "model_slots": [
+    {"key": "unet", "label": "Video model", "node": "1", "input": "unet_name"}
+  ],
+  "lora_injection": {"after_node": "1", "class_type": "LoraLoaderModelOnly"},
+  "required_models": {
+    "UNETLoader.unet_name": ["wan2.2_ti2v_5B_fp16.safetensors"],
+    "CLIPLoader.clip_name": ["umt5_xxl_fp8_e4m3fn_scaled.safetensors"],
+    "VAELoader.vae_name": ["wan2.2_vae.safetensors"]
+  },
+  "prompt_guide": {
+    "style": "Wan 2.2 animates a provided still, so the prompt describes motion only — never re-describe what the frame already shows, and never mention sound (the model generates silent clips). One short present-tense paragraph in plain sentences: how the subject moves, how the camera moves (push in, pan, orbit, hold), and how the environment lives — wind, rain, steam, drifting smoke, flickering light. Modest, physically plausible motion reads best; one clear camera move beats several.",
+    "examples": [
+      "She sets the cup down and turns toward the window, hair shifting as she moves. The camera pushes in slowly from a medium shot while rain streaks the glass and the curtain sways in a faint draft.",
+      "The fisherman hauls the rope hand over hand, shoulders working, as the deck tilts gently with the swell. The camera holds steady; spray drifts through the frame and gulls wheel across the gray sky behind him."
+    ]
+  }
+}

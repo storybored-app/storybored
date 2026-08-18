@@ -202,3 +202,22 @@ def test_comfyui_url_change_flushes_object_info_cache(client, fake_comfy):  # no
     # unchanged in shape — availability now reflects the engine's real state
     use_engine(client, fake_comfy)
     assert workflows(client, refresh=False)["krea2-basic"]["available"] is False
+
+
+# -- license notes -------------------------------------------------------------
+
+
+def test_license_note_surfaced_per_pack(client, fake_comfy):  # noqa: F811
+    """Packs with real-world license caveats carry a license_note in the
+    registry payload; clean Apache packs carry an empty one."""
+    use_engine(client, fake_comfy)
+    rows = workflows(client)
+    # territory exclusion + Blackwell-only default file
+    minimax = rows["minimax-h3-i2v"]["license_note"]
+    assert "United States" in minimax and "Blackwell" in minimax
+    # community license: revenue cap + revocability disclosed
+    assert "$1M" in rows["krea2-basic"]["license_note"]
+    assert "revocable" in rows["krea2-realism"]["license_note"]
+    # Apache-2.0 packs have nothing to disclose
+    for pack_id in ("z-image-turbo", "qwen-image-2512", "wan22-ti2v-5b", "wan22-i2v-14b"):
+        assert rows[pack_id]["license_note"] == ""

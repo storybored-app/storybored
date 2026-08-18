@@ -155,6 +155,35 @@ def test_injection_on_basic_pack():
     assert graph["6"]["inputs"]["clip"] == [nid, 1]
 
 
+def test_injection_model_only_seam_on_zimage_pack():
+    """Packs whose seam node has no clip output (Z-Image: a bare UNETLoader)
+    declare character_injection.class_type LoraLoaderModelOnly — the spliced
+    loader must be model-only, or the graph would reference a clip output
+    that doesn't exist."""
+    manifest, graph = load_pack("z-image-turbo")
+    (nid,) = inject_characters(graph, manifest["character_injection"], [char(strength=0.8)])
+    node = graph[nid]
+    assert node["class_type"] == "LoraLoaderModelOnly"
+    assert node["inputs"]["model"] == ["4", 0]
+    assert "clip" not in node["inputs"]
+    assert "strength_clip" not in node["inputs"]
+    assert node["inputs"]["strength_model"] == 0.8
+    # the ModelSamplingAuraFlow node that read the UNET now reads the character
+    assert graph["12"]["inputs"]["model"] == [nid, 0]
+    # the text encoder's clip path never routed through the seam — untouched
+    assert graph["6"]["inputs"]["clip"] == ["11", 0]
+
+
+def test_injection_model_only_seam_chains_after_qwen_lightning():
+    """Qwen-Image's seam is its baked Lightning LoraLoaderModelOnly — the
+    character chains off it on the model path only."""
+    manifest, graph = load_pack("qwen-image-2512")
+    (nid,) = inject_characters(graph, manifest["character_injection"], [char()])
+    assert graph[nid]["class_type"] == "LoraLoaderModelOnly"
+    assert graph[nid]["inputs"]["model"] == ["lora_lightning", 0]
+    assert graph["12"]["inputs"]["model"] == [nid, 0]
+
+
 # -- style LoRA injection --------------------------------------------------------
 
 

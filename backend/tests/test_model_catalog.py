@@ -259,3 +259,47 @@ def test_large_model_warning_on_slots(client, fake_comfy, tmp_path):  # noqa: F8
     rows = workflows(client)
     slot = {m["key"]: m for m in rows["krea2-basic"]["models"]}["unet"]
     assert slot["large_files"] == []
+
+
+# -- shipped catalog well-formedness -------------------------------------------
+
+
+def test_shipped_catalog_covers_every_pack_file():
+    """Every file a shipped pack requires must resolve to a destination
+    folder (catalog entry or loader-class mapping), and every verified-URL
+    catalog entry must carry an exact size, a license, a page and a folder —
+    the downloader and the tier tables in docs/MODELS.md depend on them."""
+    from pathlib import Path
+
+    from storybored.engine.catalog import LOADER_FOLDERS, REPO_CATALOG
+
+    catalog = json.loads(REPO_CATALOG.read_text(encoding="utf-8"))
+    workflows_dir = Path(REPO_CATALOG).parent
+
+    for manifest_path in sorted(workflows_dir.glob("*/manifest.json")):
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for spec, files in (manifest.get("required_models") or {}).items():
+            class_type = spec.partition(".")[0]
+            for filename in files or []:
+                entry = catalog.get(filename)
+                assert entry is not None, (
+                    f"{manifest['id']}: {filename} has no catalog entry"
+                )
+                folder = entry.get("folder") or LOADER_FOLDERS.get(class_type)
+                assert folder, f"{manifest['id']}: {filename} resolves to no folder"
+
+    for filename, entry in catalog.items():
+        if filename.startswith("_"):
+            continue
+        source = str(entry.get("source", ""))
+        assert entry.get("folder"), f"{filename}: catalog entry needs a folder"
+        if source.startswith(("http://", "https://")):
+            assert source.startswith("https://"), f"{filename}: source must be https"
+            assert entry.get("license"), f"{filename}: verified entries need a license"
+            assert isinstance(entry.get("size_bytes"), int) and entry["size_bytes"] > 0, (
+                f"{filename}: verified entries need an exact size_bytes"
+            )
+            assert entry.get("page"), f"{filename}: verified entries need a page"
+            assert source.rsplit("/", 1)[-1] == filename, (
+                f"{filename}: source URL must end in the exact filename"
+            )
