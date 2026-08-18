@@ -91,7 +91,10 @@ Tag a known character ONLY when that specific character clearly appears in that
 shot (named or unmistakably present in its action/dialogue). If none of the known
 characters clearly appear in a shot, return "characters": [] for that shot — do
 NOT tag a character just because it is the only known one. Character tagging is
-best-effort: when in doubt, leave the shot untagged.
+best-effort: when in doubt, leave the shot untagged. Prefer coverage where each
+shot features ONE character (singles, shot/reverse-shot) — trained-character
+identity applies to every face in a frame, so shots tagged with two characters
+render them as look-alikes.
 
 If a character in the script is not in the known list, leave them out of
 "characters" but still describe them in the shot description.
@@ -120,6 +123,12 @@ photorealistic still — not a note. In each description:
 - When a known character (listed below) appears, reference them inline with
   their @handle (e.g. "@ava turns from the window") — never a plain name. Keep
   the @handle token exactly as given.
+- ONE @handle per shot: trained-character identity applies to every visible
+  face in a frame, so two tagged characters blend into look-alikes. Give each
+  shot a single featured character, and stage anyone else facelessly — seen
+  from behind, silhouetted, distant, cropped, or out of focus. Cover two-person
+  beats as alternating singles (shot/reverse-shot), never as two clear faces
+  in one frame.
 - Always state what characters are wearing; pick simple scene-appropriate
   wardrobe if the story doesn't say, and keep it consistent across the scene.
 - Put camera movement in the "camera" field, not the description.

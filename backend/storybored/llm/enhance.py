@@ -36,6 +36,11 @@ field, light source and quality, atmosphere, palette, composition, texture of a 
 real film still.
 - If the notes don't specify wardrobe for a character, add simple scene-appropriate \
 clothing rather than leaving it ambiguous.
+- If the notes put two or more @handle characters in the frame, keep the shot's \
+featured @handle and stage the others facelessly (from behind, silhouetted, \
+distant, or out of focus) — trained-character identity colors every visible \
+face, so two clear faces in one frame blend into look-alikes. Keep every \
+@handle token present in the prompt regardless.
 - Fold scene environment lines into the prompt so every shot in the scene stays in \
 the same recognizable location. When a "Scene look" line is given, that exact \
 environment wording wins over your own invention — restate it, don't restyle it.

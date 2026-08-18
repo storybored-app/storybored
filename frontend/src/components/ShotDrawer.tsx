@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   Check,
   CheckCircle2,
   Image as ImageIcon,
@@ -580,6 +581,17 @@ export function ShotDrawer({
                         </span>
                       ))}
                     </div>
+                  )}
+                  {cast.filter((c) => c.lora_name).length >= 2 && (
+                    <p className="mt-1.5 flex items-start gap-1.5 text-[11px] leading-snug text-amber-450">
+                      <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                      <span>
+                        Two trained characters in one shot: their identities blend into
+                        look-alike faces. Feature one @handle and describe the other
+                        person without theirs (from behind, silhouetted, distant) — or
+                        split the beat into singles.
+                      </span>
+                    </p>
                   )}
                   <div className="mt-1.5 flex items-center justify-between gap-2">
                     <span className="text-[11px] text-fog">
