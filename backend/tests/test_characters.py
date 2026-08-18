@@ -188,3 +188,21 @@ def test_thumbnail_upload(client, settings):
         files={"file": ("clip.mp4", b"xx", "video/mp4")},
     )
     assert r.status_code == 400
+
+
+def test_bio_roundtrip(client):
+    payload = {**hero_payload(), "bio": "Stoic mountain guide, few words."}
+    char = client.post("/api/characters", json=payload).json()
+    assert char["bio"] == "Stoic mountain guide, few words."
+
+    r = client.patch(f"/api/characters/{char['id']}", json={"bio": "Cheerful now."})
+    assert r.status_code == 200 and r.json()["bio"] == "Cheerful now."
+
+    listed = client.get("/api/characters").json()
+    assert [c["bio"] for c in listed if c["id"] == char["id"]] == ["Cheerful now."]
+
+    # bio untouched by unrelated updates; clearable to ""
+    r = client.patch(f"/api/characters/{char['id']}", json={"notes": "x"})
+    assert r.json()["bio"] == "Cheerful now."
+    r = client.patch(f"/api/characters/{char['id']}", json={"bio": ""})
+    assert r.json()["bio"] == ""

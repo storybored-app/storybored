@@ -92,7 +92,9 @@ Unset optional vars = feature gracefully degrades (UI shows "not configured", ne
   "qwen-image" | any user family id; NULL = unknown/agnostic, never warned
   about — added via the _ADDED_COLUMNS guard; the training path stamps it from
   the target engine's family, import may set it),
-  thumbnail_path nullable, notes="", status in ready|dataset|training|trained
+  thumbnail_path nullable, bio="" (optional persona — feeds the
+  generate-thumbnail portrait draft; _ADDED_COLUMNS guard), notes="",
+  status in ready|dataset|training|trained
 - **shotcharacter**: shot_id, character_id (link table, refreshed from @mentions on save)
 - **take**: id, shot_id FK, kind in image|video, status in pending|done|failed,
   file_path nullable, thumb_path nullable, workflow_id, params_json, seed int,
@@ -180,10 +182,17 @@ Characters:
   engine's family)
 - `GET /api/characters/available-loras` → list from ComfyUI /object_info LoraLoader enum
 - `POST /api/characters/import-lora` multipart (.safetensors → COMFY_LORAS_DIR) or {lora_name}
-- `POST /api/characters/{id}/generate-thumbnail {workflow_id?, prompt?}` → {job_id};
-  requires lora_name; character_thumb job renders one square (1024²) portrait through
-  the full LoRA pipeline (default prompt: head-and-shoulders, concrete wardrobe stated)
-  and sets character.thumbnail_path (media/characters/{id}/portrait_{job}.png + _thumb)
+- `POST /api/characters/{id}/generate-thumbnail {workflow_id?, prompt?, bio?}` →
+  {job_id, prompt, bio_used}; requires lora_name; character_thumb job renders one
+  square (1024²) portrait through the full LoRA pipeline and sets
+  character.thumbnail_path (media/characters/{id}/portrait_{job}.png + _thumb).
+  With a `bio` (request override wins over the stored `character.bio`; "" forces
+  the stock portrait) and no explicit `prompt`, the endpoint first drafts a
+  personality-informed portrait prompt via PromptSmith (llm/portrait.py — one
+  call + one @handle-nudge retry, concrete wardrobe always stated) and returns
+  it as `prompt` with `bio_used: true`; the render job itself never calls an
+  LLM. LLM unconfigured/failing degrades to the stock head-and-shoulders
+  portrait with `bio_used: false` so the UI can say so.
 - Wizard: `POST /api/characters/wizard` multipart images[] and/or {image_urls:[…]} +
   {name, handle, trigger, class_word} → creates character(status=dataset) + dataset_prep job.
   `GET /api/training/{character_id}` → prep report (report.md text), sample paths, job states.

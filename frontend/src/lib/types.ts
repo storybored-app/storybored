@@ -86,6 +86,8 @@ export interface Character {
    *  null = unknown/agnostic — works with any engine, unchecked. */
   lora_family?: string | null;
   thumbnail_path?: string | null;
+  /** Optional persona — personality, vibe, style. Feeds Generate thumbnail. */
+  bio?: string;
   notes?: string;
   status: CharacterStatus;
 }

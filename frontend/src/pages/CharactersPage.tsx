@@ -1014,6 +1014,7 @@ function EditCharacterModal({
   const qc = useQueryClient();
   const [trigger, setTrigger] = useState(character.trigger);
   const [strength, setStrength] = useState(String(character.lora_strength));
+  const [bio, setBio] = useState(character.bio ?? "");
   const [notes, setNotes] = useState(character.notes ?? "");
 
   const save = useMutation({
@@ -1021,6 +1022,7 @@ function EditCharacterModal({
       apiPatch(`/api/characters/${character.id}`, {
         trigger,
         lora_strength: parseFloat(strength) || 1.0,
+        bio,
         notes,
       }),
     onSuccess: () => {
@@ -1032,12 +1034,24 @@ function EditCharacterModal({
 
   const genThumb = useMutation({
     mutationFn: () =>
-      apiPost(`/api/characters/${character.id}/generate-thumbnail`, {}),
-    onSuccess: () => {
-      toast(
-        `Rendering a portrait of ${character.name} — the card updates when it's done.`,
-        "success",
-      );
+      apiPost<{ job_id: number; prompt: string | null; bio_used: boolean }>(
+        `/api/characters/${character.id}/generate-thumbnail`,
+        { bio }, // unsaved editor state wins over the stored bio
+      ),
+    onSuccess: (res) => {
+      if (bio.trim() && !res.bio_used) {
+        toast(
+          `Couldn't reach the LLM to work ${character.name}'s bio into the portrait — rendering the standard studio headshot instead.`,
+          "error",
+        );
+      } else {
+        toast(
+          res.bio_used
+            ? `Rendering a portrait of ${character.name} with their bio in mind — the card updates when it's done.`
+            : `Rendering a portrait of ${character.name} — the card updates when it's done.`,
+          "success",
+        );
+      }
       onClose();
     },
     onError: (e: Error) => toast(e.message, "error"),
@@ -1061,6 +1075,14 @@ function EditCharacterModal({
             />
           </Field>
         </div>
+        <Field label="Bio">
+          <TextArea
+            rows={3}
+            value={bio}
+            onChange={(e) => setBio(e.target.value)}
+            placeholder="Optional — who they are: personality, vibe, style. Generate thumbnail uses it to give the portrait character."
+          />
+        </Field>
         <Field label="Notes">
           <TextArea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Field>
@@ -1072,7 +1094,9 @@ function EditCharacterModal({
               onClick={() => genThumb.mutate()}
               title={
                 character.lora_name
-                  ? "Render a fresh portrait with this character's LoRA and use it as the card thumbnail"
+                  ? bio.trim()
+                    ? "Render a fresh portrait shaped by their bio and use it as the card thumbnail"
+                    : "Render a fresh portrait with this character's LoRA and use it as the card thumbnail"
                   : "Needs a LoRA — train or import one first"
               }
             >
@@ -1205,6 +1229,11 @@ export function CharactersPage() {
                     </span>
                   )}
                 </div>
+                {c.bio?.trim() && (
+                  <p className="mt-1 line-clamp-2 text-xs text-fog" title={c.bio}>
+                    {c.bio}
+                  </p>
+                )}
               </div>
             </div>
           ))}

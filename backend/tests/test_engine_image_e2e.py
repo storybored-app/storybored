@@ -325,6 +325,114 @@ def test_character_thumbnail_requires_lora(client, fake_comfy):  # noqa: F811
     assert "no LoRA" in r.json()["detail"]
 
 
+HERO_BIO = "Retired jazz trumpeter; wry, unhurried, dresses sharp."
+HERO_PORTRAIT = (
+    "portrait photograph of @hero with a wry half-smile and an unhurried gaze, "
+    "wearing a charcoal three-piece suit with a burgundy tie, collar visible, "
+    "chest-up framing, warm club lighting, softly blurred stage backdrop, "
+    "sharp focus on the face, photorealistic"
+)
+
+
+def test_character_thumbnail_bio_drives_prompt_via_llm(  # noqa: F811
+    client, app, settings, fake_comfy
+):
+    from fake_llm import FakeLLM
+
+    hero = make_hero(client)
+    r = client.patch(f"/api/characters/{hero['id']}", json={"bio": HERO_BIO})
+    assert r.status_code == 200 and r.json()["bio"] == HERO_BIO
+
+    llm = FakeLLM().start()
+    try:
+        r = client.put(
+            "/api/settings",
+            json={"values": {"llm_base_url": llm.base_url, "llm_model": "fake-model"}},
+        )
+        assert r.status_code == 200, r.text
+        llm.queue(HERO_PORTRAIT)
+
+        r = client.post(f"/api/characters/{hero['id']}/generate-thumbnail", json={})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["bio_used"] is True
+        assert body["prompt"] == HERO_PORTRAIT
+
+        # the bio (not just the name) reached the model
+        sent = llm.requests[-1]["messages"][-1]["content"]
+        assert "jazz trumpeter" in sent and "@hero" in sent
+
+        job = wait_job(client, body["job_id"])
+        assert job["status"] == "done", job
+        (prompt_id,) = fake_comfy.state.order
+        graph = fake_comfy.state.prompts[prompt_id]
+        text = graph["6"]["inputs"]["text"]
+        # @hero was substituted with the trigger phrase; the drafted wardrobe held
+        assert "zxqhero" in text and "charcoal three-piece suit" in text
+    finally:
+        llm.stop()
+
+
+def test_character_thumbnail_bio_falls_back_when_llm_unconfigured(  # noqa: F811
+    client, settings, fake_comfy
+):
+    hero = make_hero(client)
+    client.patch(f"/api/characters/{hero['id']}", json={"bio": HERO_BIO})
+
+    r = client.post(f"/api/characters/{hero['id']}/generate-thumbnail", json={})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["bio_used"] is False and body["prompt"] is None
+
+    job = wait_job(client, body["job_id"])
+    assert job["status"] == "done", job
+    (prompt_id,) = fake_comfy.state.order
+    graph = fake_comfy.state.prompts[prompt_id]
+    assert graph["6"]["inputs"]["text"].startswith("portrait photograph of zxqhero woman")
+
+
+def test_character_thumbnail_bio_falls_back_when_handle_dropped(  # noqa: F811
+    client, settings, fake_comfy
+):
+    from fake_llm import FakeLLM
+
+    hero = make_hero(client)
+    client.patch(f"/api/characters/{hero['id']}", json={"bio": HERO_BIO})
+
+    llm = FakeLLM().start()
+    try:
+        client.put(
+            "/api/settings",
+            json={"values": {"llm_base_url": llm.base_url, "llm_model": "fake-model"}},
+        )
+        # both the draft and the nudge retry drop @hero → LLMError → stock portrait
+        llm.queue("portrait photograph of a nameless stranger in a gray hoodie")
+        llm.queue("portrait photograph of somebody else entirely, navy jacket")
+
+        r = client.post(f"/api/characters/{hero['id']}/generate-thumbnail", json={})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["bio_used"] is False and body["prompt"] is None
+        job = wait_job(client, body["job_id"])
+        assert job["status"] == "done", job
+    finally:
+        llm.stop()
+
+
+def test_character_thumbnail_editor_bio_override(client, settings, fake_comfy):  # noqa: F811
+    hero = make_hero(client)
+    client.patch(f"/api/characters/{hero['id']}", json={"bio": HERO_BIO})
+
+    # "" override: render the stock portrait even though a bio is saved —
+    # unsaved editor state wins, and no LLM is consulted
+    r = client.post(f"/api/characters/{hero['id']}/generate-thumbnail", json={"bio": ""})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["bio_used"] is False and body["prompt"] is None
+    job = wait_job(client, body["job_id"])
+    assert job["status"] == "done", job
+
+
 def test_pinned_seed_repeats(client, fake_comfy):  # noqa: F811
     _, _, shot = make_board(client, description="a quiet hallway")
     r = client.post(

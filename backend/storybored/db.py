@@ -32,7 +32,10 @@ _ADDED_COLUMNS: dict[str, dict[str, str]] = {
     "job": {"project_id": "INTEGER"},
     # nullable on purpose: existing characters have an unknown family and must
     # never start failing compatibility checks after an upgrade
-    "character": {"lora_family": "VARCHAR"},
+    "character": {
+        "lora_family": "VARCHAR",
+        "bio": "VARCHAR NOT NULL DEFAULT ''",
+    },
 }
 
 

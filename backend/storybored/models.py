@@ -69,6 +69,9 @@ class Character(SQLModel, table=True):
     #: on import.
     lora_family: str | None = None
     thumbnail_path: str | None = None
+    #: optional persona — who they are (personality, vibe, style). Feeds the
+    #: Generate-thumbnail portrait prompt so cast members read as individuals.
+    bio: str = ""
     notes: str = ""
     status: str = "ready"  # ready | dataset | training | trained
 

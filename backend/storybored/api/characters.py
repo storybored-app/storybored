@@ -20,6 +20,9 @@ from storybored.api.settings_api import effective_setting
 from storybored.db import get_session
 from storybored.engine import families, registry
 from storybored.engine.comfy_client import ComfyClient, ComfyError
+from storybored.llm.client import LLMError, LLMNotConfiguredError, get_llm_config
+from storybored.llm.guides import resolve_prompt_guide
+from storybored.llm.portrait import build_portrait_notes, generate_portrait_prompt
 from storybored.models import Character, ShotCharacter
 
 router = APIRouter(prefix="/api", tags=["characters"])
@@ -39,6 +42,7 @@ class CharacterCreate(BaseModel):
     #: model family the LoRA belongs to (e.g. "krea2", "z-image"); None/"" =
     #: unspecified — the character then works with any engine, unchecked
     lora_family: str | None = None
+    bio: str = ""
     notes: str = ""
     status: str = "ready"
 
@@ -51,6 +55,7 @@ class CharacterUpdate(BaseModel):
     lora_name: str | None = None
     lora_strength: float | None = None
     lora_family: str | None = None  # "" clears back to unspecified
+    bio: str | None = None
     notes: str | None = None
     status: str | None = None
 
@@ -270,6 +275,9 @@ def upload_thumbnail(
 class ThumbnailGenRequest(BaseModel):
     workflow_id: str | None = None
     prompt: str | None = None
+    #: unsaved editor state wins over the stored bio when provided ("" = render
+    #: the stock portrait even though a bio is saved)
+    bio: str | None = None
 
 
 @router.post("/characters/{character_id}/generate-thumbnail")
@@ -304,8 +312,25 @@ async def generate_thumbnail(
         )
     await require_pack_available(session, settings, pack, "cannot render a portrait")
 
+    # With a bio (and no explicit prompt), draft a personality-informed
+    # portrait prompt via PromptSmith BEFORE enqueueing — the render job never
+    # calls an LLM. LLM down/failing degrades to the stock studio portrait,
+    # surfaced via bio_used so the UI can say so.
+    prompt = (body.prompt or "").strip()
+    bio = (body.bio if body.bio is not None else char.bio or "").strip()
+    bio_used = False
+    if not prompt and bio:
+        try:
+            config = get_llm_config(session, settings)
+            guide = resolve_prompt_guide(session, settings, "image", workflow_id)
+            notes = build_portrait_notes(char.name, char.handle, char.class_word, bio)
+            prompt = generate_portrait_prompt(config, notes, char.handle, guide)
+            bio_used = True
+        except (LLMNotConfiguredError, LLMError):
+            prompt = ""
+
     payload = {"character_id": character_id, "workflow_id": workflow_id}
-    if body.prompt:
-        payload["prompt"] = body.prompt
+    if prompt:
+        payload["prompt"] = prompt
     job = request.app.state.runner.enqueue("character_thumb", payload)
-    return {"job_id": job.id}
+    return {"job_id": job.id, "prompt": prompt or None, "bio_used": bio_used}
