@@ -143,6 +143,7 @@ API export keeps only ids, so keep the editor-format `.json` around as your
 | `required_models` | no | Map of `"<ClassType>.<input_name>"` → list of model filenames the graph needs. Validated against ComfyUI `/object_info` enums (cached 60 s); misses mark the pack unavailable with the missing names listed. Availability checks the **effective** set: a user's Settings model swap replaces the baked filename, and a baked LoRA the user toggled off is not required. |
 | `required_nodes` | no | Extra node **class names** to require beyond what the graph already references (rarely needed — every `class_type` in your graph is checked automatically). Missing classes mark the pack unavailable with a "missing custom nodes" list, so users learn they need a node pack, not a model file. |
 | `license_note` | no | One honest sentence (or two) about real-world caveats in the pack's **model license** — territory exclusions, revenue caps, revocable grants, hardware-locked default files. Shown as a small warning line in the pack's Settings row and in the setup wizard's engine list. Leave it out for clean licenses (Apache/MIT); don't use it for marketing. The shipped Krea 2 packs (community license: sub-$1M revenue, revocable) and `minimax-h3-i2v` (US/EU/UK/South-Korea territory exclusion + Blackwell-only default file) carry examples. |
+| `lora_family` | no | The **model family** this pack's character LoRAs must belong to — a lowercase slug like `"krea2"`, `"z-image"` or `"qwen-image"`. Character LoRAs are family-bound (one trained for Krea 2 is inert on Z-Image), so StoryBored uses this id to pre-flight renders: a shot casting a character whose recorded family differs from the pack's is rejected with a clear 409 before anything queues, and the shot drawer marks such engines as "characters not compatible". It also targets training: the trainer is told to produce a LoRA of the default image engine's family. Omit it for a family-agnostic pack — absent means "no checks", never a block. The shipped image packs declare `krea2` (both Krea 2 packs), `z-image` and `qwen-image`. |
 | `prompt_guide` | no | Teaches the writing assistant how *your model* wants to be prompted: `{"style": "<one-paragraph description>", "examples": ["<good prompt>", ...]}` (examples optional, max 3). Injected into every LLM prompt-assembly pass — Enhance, script/story-vibes breakdown, motion drafts — whenever your pack is the engine that will render the result. A malformed guide is logged and ignored, never fatal. See "Teach the assistant your model's prompt style" below. |
 
 ### Parameter types
@@ -211,6 +212,13 @@ splices Sam's LoRA into your graph at generation time — your pack just declare
 Prompt side: `@sam` in the description becomes Sam's `"{trigger} {class_word}"`
 (e.g. `"zxsam person"`) before the prompt is written into the graph — the
 trigger token is what the LoRA was trained to respond to.
+
+**Families.** A character LoRA only works on the model family it was trained
+for. Declare your pack's family with the `lora_family` manifest key (see the
+field table) so StoryBored can refuse — with a useful message instead of a
+garbage render — to splice a Krea 2 character into a Z-Image graph. Characters
+with no recorded family, and packs without the key, are treated as
+family-agnostic: nothing is ever blocked on a missing value.
 
 **Model-only seams.** The mechanics above assume the seam node has both a
 MODEL and a CLIP output (a checkpoint loader or full `LoraLoader` chain). In
@@ -439,4 +447,7 @@ last item automatically:
 - [ ] `character_injection.after_node` points at the *last* LoRA in your chain —
       it's the seam for characters, style LoRAs, and user-appended LoRAs alike
       (see "Runtime LoRA layers" above).
+- [ ] `lora_family` declares the model family if trained character LoRAs should
+      work with this pack (and be guarded against the wrong family) — omit it
+      only for genuinely family-agnostic graphs.
 - [ ] No absolute paths, hostnames, or personal LoRA names in either file.

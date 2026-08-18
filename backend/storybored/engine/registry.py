@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from storybored.config import Settings
-from storybored.engine import catalog
+from storybored.engine import catalog, families
 from storybored.engine.comfy_client import ComfyClient, ComfyError
 from storybored.engine.graph import LORA_CLASSES, lora_chain, lora_injection_spec
 
@@ -382,6 +382,9 @@ async def list_workflows(
             # real-world caveats (territory exclusions, revenue caps, revocable
             # grants) — shown in Settings rows and the setup wizard
             "license_note": str(manifest.get("license_note") or ""),
+            # model family this pack's character LoRAs must belong to
+            # ("" = family-agnostic; see engine/families.py)
+            "lora_family": families.pack_family(manifest),
             "parameters": manifest.get("parameters", []),
             "supports_characters": bool(manifest.get("character_injection")),
             "supports_loras": bool(lora_injection_spec(manifest)),

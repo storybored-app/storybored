@@ -16,6 +16,7 @@ Exit codes (CI-friendly):
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 from storybored.engine.registry import MAX_PROMPT_GUIDE_EXAMPLES
@@ -211,6 +212,30 @@ def _check_prompt_guide(report: PackReport, manifest: dict) -> None:
         )
 
 
+#: lora_family ids are lowercase slugs ("krea2", "z-image", "qwen-image") —
+#: character-LoRA compatibility matches the id string exactly
+_FAMILY_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+def _check_lora_family(report: PackReport, manifest: dict) -> None:
+    """Optional ``lora_family``: the model family this pack's character LoRAs
+    must belong to. Absent = family-agnostic (no compatibility checks)."""
+    family = manifest.get("lora_family")
+    if family is None:
+        return
+    if not isinstance(family, str) or not family.strip():
+        report.error(
+            'lora_family must be a non-empty string (e.g. "krea2", "z-image", '
+            '"qwen-image") or omitted for a family-agnostic pack'
+        )
+        return
+    if not _FAMILY_SLUG_RE.match(family):
+        report.warn(
+            f"lora_family '{family}' is not a lowercase slug — character-LoRA "
+            "compatibility matches this id exactly, so keep it stable and slug-shaped"
+        )
+
+
 def _check_model_slots(report: PackReport, manifest: dict, graph: dict) -> None:
     for i, slot in enumerate(manifest.get("model_slots") or []):
         if not isinstance(slot, dict):
@@ -309,6 +334,7 @@ def validate_pack(pack_dir: Path) -> PackReport:
     _check_model_slots(report, manifest, graph)
     _check_prompt_guide(report, manifest)
     _check_license_note(report, manifest)
+    _check_lora_family(report, manifest)
     for cls in manifest.get("required_nodes") or []:
         if not isinstance(cls, str) or not cls:
             report.error("required_nodes entries must be non-empty class-name strings")

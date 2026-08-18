@@ -2,6 +2,7 @@
   "id": "qwen-image-2512",
   "name": "Qwen-Image 2512",
   "kind": "image",
+  "lora_family": "qwen-image",
   "description": "Qwen-Image 2512 (fp8) with the Lightning 8-step LoRA baked in: best-in-class open photoreal humans and text rendering, entire stack Apache 2.0. Around 31 GB of downloads — wants a 24 GB card. Without the Lightning LoRA the model runs 20 steps at cfg 2.5.",
   "graph": "graph.json",
   "parameters": [

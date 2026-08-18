@@ -2,6 +2,7 @@
   "id": "krea2-basic",
   "name": "Krea 2 — Basic",
   "kind": "image",
+  "lora_family": "krea2",
   "description": "Lean 8-step turbo-distilled Krea 2: base model plus the turbo distill LoRA only. Fast, style-neutral stills — a good default when character LoRAs should dominate the look.",
   "license_note": "Krea 2 Community License: commercial use only below $1M trailing-12-month revenue, and the license is revocable on 30 days notice. Fully open alternatives: the Z-Image and Qwen-Image engines (Apache 2.0).",
   "graph": "graph.json",
