@@ -207,6 +207,41 @@ def derive_tier(gpus: list[dict]) -> str:
     return "board"
 
 
+def training_note(vram_gb: float | None) -> str:
+    """Honest character-training capability line for the reported VRAM.
+
+    Only sourced numbers, with the GPU class attached: Z-Image training is
+    community-proven on 12 GB-class cards (~1–2 h for 2000 steps, 512/768
+    buckets); the Krea 2 recipe wants a 24 GB-class card (~2.5–4 h for 3000
+    steps). Below 12 GB no training recipe is established for any shipped
+    family — the honest answer there is importing ready-made LoRAs (community
+    hubs carry thousands of Z-Image character LoRAs).
+    """
+    if vram_gb is None:
+        return (
+            "No GPU with known memory reported — skip training and import "
+            "ready-made character LoRAs instead (community hubs carry "
+            "thousands of Z-Image character LoRAs)."
+        )
+    v = round(vram_gb)
+    if v >= 24:
+        return (
+            "24 GB-class GPU: full-quality character training in any family — "
+            "Krea 2 ~2.5–4 h (3000 steps) or Z-Image ~1–2 h (2000 steps)."
+        )
+    if v >= 12:
+        return (
+            "12 GB-class GPU (or larger, below 24 GB): Z-Image character "
+            "training is proven at this size — ~1–2 h for 2000 steps. Krea 2 "
+            "training wants a 24 GB-class card."
+        )
+    return (
+        "Under 12 GB, character training isn't established for any shipped "
+        "engine — import ready-made character LoRAs instead (community hubs "
+        "carry thousands of Z-Image character LoRAs)."
+    )
+
+
 def recommended_llm_tag(vram_gb: float | None) -> str:
     """Ollama tag for the writing assistant, by VRAM (see LLM_TAG_FLOORS)."""
     for floor, tag in LLM_TAG_FLOORS:
@@ -314,10 +349,13 @@ async def setup_probe(
     else:
         llm_status, models = "not_configured", []
 
+    best = best_vram_gb(gpus)
     return {
         "comfy": {"status": comfy_status, "url": comfy_url, "gpus": gpus, "tier": tier},
         "llm": {"status": llm_status, "url": llm_url, "models": models},
         "trainer": {"status": probe_trainer(trainer_dir), "dir": trainer_dir},
+        # per-tier character-training capability (sourced numbers only)
+        "training": {"vram_gb": best, "note": training_note(best)},
         "ffmpeg": ffmpeg_status(),
         "workflows": workflows,
         "recommended": recommended,

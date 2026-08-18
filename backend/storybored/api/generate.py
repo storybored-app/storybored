@@ -6,7 +6,11 @@ from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
-from storybored.api.preflight import require_pack_available, resolve_pack
+from storybored.api.preflight import (
+    require_characters_compatible,
+    require_pack_available,
+    resolve_pack,
+)
 from storybored.api.shots import get_shot_or_404
 from storybored.db import get_session
 from storybored.engine import registry
@@ -34,6 +38,10 @@ async def generate_shot(
 
     pack = resolve_pack(session, settings, packs, body.workflow_id, kind="image")
     workflow_id = pack.id
+    # family gate first: a wrong-family character is a content problem the
+    # user must resolve (switch engines / drop the mention), independent of
+    # whether the engine is reachable right now
+    require_characters_compatible(session, pack, shot_id)
     await require_pack_available(
         session, settings, pack, f"cannot validate workflow '{workflow_id}'"
     )
