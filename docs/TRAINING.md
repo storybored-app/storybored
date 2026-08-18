@@ -22,6 +22,48 @@ public figures, or anyone who hasn't agreed. For fictional characters, use
 images you have the rights to. StoryBored won't police this for you; it's on
 you.
 
+## Model families
+
+A character LoRA is **bound to the model family it was trained on**: one
+trained for Krea 2 is inert on Z-Image or Qwen-Image (different transformer,
+different weight shapes — the file loads, the face never appears). StoryBored
+tracks the family end to end so you find that out before a render, not after:
+
+- **Engines declare a family.** Image packs may carry a `lora_family` id in
+  their manifest ([WORKFLOWS.md](WORKFLOWS.md#manifestjson-field-by-field));
+  the shipped packs declare `krea2` (both Krea 2 packs), `z-image` and
+  `qwen-image`. A pack without the key is family-agnostic — no checks.
+- **Characters record a family.** Training stamps it automatically (below);
+  imported characters get a "Made for engine" picker that defaults to your
+  default image engine's family, with "not sure — any engine" allowed.
+  Characters created before families existed read as *unknown* and are never
+  blocked or warned about.
+- **Training targets your default image engine.** The wizard resolves that
+  engine's `lora_family` and tells the trainer to produce a LoRA of that
+  family (the `--family` argument of the trainer contract), stamping it on
+  the character at train time. If the default engine declares no family,
+  training falls back to `krea2` — the historical behavior of the
+  lora-factory pipeline.
+- **Compatibility guard.** Generating a shot whose `@characters` carry a
+  family different from the selected engine's is refused with a clear 409 —
+  *"@mari was trained for Krea 2 — this engine renders with Z-Image; switch
+  engines or remove the mention"* — and the shot drawer marks incompatible
+  engines *before* you hit Generate. Unknown/agnostic on either side never
+  blocks.
+
+Hardware and time per family (sourced measurements, not promises):
+
+| Family | GPU class | Recipe | Time | Sources |
+| --- | --- | --- | --- | --- |
+| Krea 2 (`krea2`) | 24 GB-class | 3000 steps, 1024/1280 buckets, qfloat8 | ~2.5–4 h (~4 s/it) | lora-factory README (recipe tuned on a 32 GB card) |
+| Z-Image (`z-image`) | 12 GB-class proven | 2000 steps, 512/768 buckets (skip 1024), float8 + memory optimization | ~1–2 h (~2–3 s/it); good results from as few as 6–25 images | [ai-toolkit #550](https://github.com/ostris/ai-toolkit/issues/550), [Z-Image #36](https://github.com/Tongyi-MAI/Z-Image/issues/36), [neurocanvas guide](https://neurocanvas.net/blog/zimage-lora-training-guide/), [HF community blog](https://huggingface.co/blog/content-and-code/training-a-lora-for-z-image-turbo) |
+| Qwen-Image (`qwen-image`) | — | **experimental**: ai-toolkit `qwen_image` arch, 2000-step example config | no verified VRAM/time numbers | [ai-toolkit example config](https://github.com/ostris/ai-toolkit/blob/main/config/examples/train_lora_qwen_image_24gb.yaml) |
+
+Below 12 GB, no training recipe is established for any shipped family — the
+practical answer at that tier is **importing ready-made LoRAs** (community
+hubs carry thousands of Z-Image character LoRAs). The setup wizard's trainer
+step tells you which of these applies to your GPU.
+
 ## Prerequisites
 
 Character training wraps an external **lora-factory-style trainer** — a
@@ -114,9 +156,10 @@ Characters → New character → **Train from photos**.
    final at strengths 0.7 and 1.0 (~10–20 min on the GPU); clear the
    checkpoints field to test every saved version.
 
-Time expectations: prep is minutes; training is **hours** (roughly 2.5–4 h for
-a full run on a modern 24 GB-class GPU — start it before bed, not before a
-review meeting).
+Time expectations: prep is minutes; training is **hours**, and how many
+depends on the target family (see [Model families](#model-families)): roughly
+2.5–4 h for a Krea 2 run on a 24 GB-class GPU, ~1–2 h for a Z-Image run on a
+12 GB-class one — start it before bed, not before a review meeting.
 
 > **Restart survival:** the training subprocess is started detached with a
 > pidfile under `DATA_DIR/training/pids/`, so restarting the StoryBored server
@@ -150,3 +193,4 @@ character — that's a property of stacked LoRAs, not a StoryBored setting.
 | Character doesn't look right in generations | Too few/too-similar photos; or strength too low — try raising toward 1.0 before retraining. |
 | Character overpowers every shot (same pose/outfit bleeding in) | Dataset too repetitive; lower strength, and retrain with more variety. |
 | Generations queued forever | A training job holds the GPU lane — that's by design. Check the job tray; cancel training if you need the GPU now. |
+| Generate refused: "@x was trained for … — this engine renders with …" | The character's LoRA family doesn't match the selected engine (see [Model families](#model-families)). Switch to an engine of the character's family, remove the mention, or retrain the character with the new engine set as default. |

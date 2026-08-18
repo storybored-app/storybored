@@ -88,6 +88,10 @@ Unset optional vars = feature gracefully degrades (UI shows "not configured", ne
   picked_take_id nullable, video_take_id nullable
 - **character**: id, name, handle unique (no @ stored), trigger, class_word="person",
   lora_name (ComfyUI dropdown name incl. subdir), lora_strength float=1.0,
+  lora_family nullable (model family the LoRA binds to — "krea2" | "z-image" |
+  "qwen-image" | any user family id; NULL = unknown/agnostic, never warned
+  about — added via the _ADDED_COLUMNS guard; the training path stamps it from
+  the target engine's family, import may set it),
   thumbnail_path nullable, notes="", status in ready|dataset|training|trained
 - **shotcharacter**: shot_id, character_id (link table, refreshed from @mentions on save)
 - **take**: id, shot_id FK, kind in image|video, status in pending|done|failed,
@@ -170,7 +174,10 @@ Project archives (.storybored — full spec in the section below):
   manifest, newer schema_version, unsafe member paths (zip-slip).
 
 Characters:
-- `GET/POST /api/characters` · `PATCH/DELETE /api/characters/{id}`
+- `GET/POST /api/characters` · `PATCH/DELETE /api/characters/{id}` — create
+  and update accept an optional `lora_family` (""/whitespace normalize to
+  NULL = unspecified; the import UI defaults the picker to the default image
+  engine's family)
 - `GET /api/characters/available-loras` → list from ComfyUI /object_info LoraLoader enum
 - `POST /api/characters/import-lora` multipart (.safetensors → COMFY_LORAS_DIR) or {lora_name}
 - `POST /api/characters/{id}/generate-thumbnail {workflow_id?, prompt?}` → {job_id};
@@ -183,6 +190,19 @@ Characters:
   `POST /api/training/{character_id}/train` → lora_train job (explicit user step after
   reviewing the prep report). On train completion: character.status=trained,
   lora_name=final checkpoint, strength=1.0 (user-adjustable).
+  **Family targeting**: both wizard and train resolve the DEFAULT IMAGE
+  ENGINE's `lora_family` (family-agnostic engine → "krea2", the historical
+  trainer behavior), stamp it on `character.lora_family` (train time is
+  authoritative — re-resolved in case the default engine changed since prep),
+  and carry it as `family` in the dataset_prep / lora_train payloads → the
+  trainer adapter's `--family` shell argument.
+- **Family pre-flight**: `POST /api/shots/{id}/generate` 409s before queueing
+  when any of the shot's @characters carries a `lora_family` different from
+  the pack's — detail names each character and both families
+  (`"@mari was trained for Krea 2 — this engine renders with Z-Image; switch
+  engines or remove the mention"`; plural → "mentions"). NULL/agnostic on
+  either side never blocks. `generate-thumbnail` runs the same check for the
+  character being rendered ("… pick a compatible engine").
 - Checkpoint shootout (optional post-train quality pass, character must be trained):
   `POST /api/training/{character_id}/shootout {strengths?, ckpts?, seeds?}` → {job_id}
   (409 while one is queued/running or when no checkpoints exist; 400 on malformed knobs).
@@ -232,7 +252,8 @@ Infra:
   additionally carries `large_files: [str]` — dropdown options whose on-disk size
   exceeds 24 GB (the documented offload lesson; stat failures are silently skipped).
   Also per workflow: `license_note: str` ("" when the manifest declares
-  none — see the Workflow packs section), `default: bool` (per kind, from default_image/video_workflow), the pack's baked
+  none — see the Workflow packs section), `lora_family: str` (the pack's
+  character-LoRA model family, "" = family-agnostic), `default: bool` (per kind, from default_image/video_workflow), the pack's baked
   `loras: [{node, lora_name, strength, baked_strength, enabled, disabled_with_character}]`
   in chain order with user overrides applied, `added_loras: [{lora_name, strength,
   enabled}]`, `loras_modified: bool`, the pack's swappable
@@ -314,7 +335,11 @@ Infra:
   `{comfy: {status, url, gpus: [{name, vram_gb|null}], tier},
   llm: {status, url, models: [id…]}, trainer: {status, dir}, ffmpeg,
   workflows: [{id, name, kind, available, missing_models, license_note}]
-  (only when comfy ok), recommended, tiers: {studio: 24, "stills-hd": 16,
+  (only when comfy ok), recommended,
+  training: {vram_gb, note} (character-training capability for the reported
+  VRAM, sourced numbers only: <12 GB → import ready-made LoRAs; 12 GB-class →
+  Z-Image ~1–2 h for 2000 steps; 24 GB-class → any family, Krea 2 ~2.5–4 h
+  for 3000 steps), tiers: {studio: 24, "stills-hd": 16,
   stills: 12, "stills-lite": 6}}` (tier name → VRAM floor in GiB).
   GPU rows come straight from ComfyUI /system_stats (never invented; unknown
   VRAM → null). `tier` ∈ board|stills-lite|stills|stills-hd|studio: best-GPU
@@ -397,6 +422,14 @@ Infra:
   (`license_note`, "" when absent) and rendered as a small warning in the
   Settings engine row and the setup wizard's engine list. Never blocks
   anything — disclosure, not enforcement.
+- **LoRA families** (engine/families.py): optional manifest `lora_family`
+  (slug, e.g. "krea2" | "z-image" | "qwen-image") declares which model family
+  this pack's character LoRAs must belong to. Surfaced by GET /api/workflows,
+  linted by validate-pack (error on non-string/empty, warn on non-slug),
+  enforced by the generate/thumbnail pre-flight against
+  `character.lora_family`, and used to target training (the default image
+  engine's family is what the trainer is told to produce). Absent =
+  family-agnostic: no checks, and training falls back to "krea2".
 - **Prompt guides** (llm/guides.py): optional manifest `prompt_guide
   {style: "<one-paragraph prompting description>", examples: [≤3 strings]}`
   teaches the writing assistant the pack's prompting dialect. Shape is
@@ -507,9 +540,12 @@ degrade gracefully. Dataset images: uploads + `fetch.py` URL downloads (10MB cap
 content-type check, max 60) → `{LORA_FACTORY_DIR}/../inbox/{handle}` equivalent under
 DATA_DIR staging, then:
 - dataset_prep job: `./prep.sh <staging_dir> --name <handle>-v1 --trigger <trigger>
-  --class-word <class_word>` (cwd=LORA_FACTORY_DIR, stream stdout tail into job.detail).
+  --class-word <class_word> --family <family>` (cwd=LORA_FACTORY_DIR, stream
+  stdout tail into job.detail; `--family` carries the payload's target LoRA
+  family — it selects the trainer's per-family config template and resize
+  ceiling — and is omitted only for pre-family payloads).
   On done: read `jobs/<job>/report.md` for the wizard's review screen.
-- lora_train job: `tmux`-free: `bash train.sh <job>` as subprocess (survives via job
+- lora_train job: `tmux`-free: `bash train.sh <job> --family <family>` as subprocess (survives via job
   runner process; note in docs that closing StoryBored kills training v1 limitation —
   UNLESS trivially avoidable via start_new_session=True + pidfile reattach, then do that).
   Progress: parse step counts from stdout lines when present (`progress = step/3000`).

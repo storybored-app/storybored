@@ -13,13 +13,13 @@ logic on paper. Every recommendation is a preselection, never a lock: any
 pack your ComfyUI can run stays selectable. Speed numbers are sourced
 community/vendor measurements on the named card, not promises.
 
-| VRAM | Tier | Recommended stills engine | Recommended video engine | Downloads | License | Measured speed |
-| --- | --- | --- | --- | --- | --- | --- |
-| under 6 GB | `board` | — | — | — | — | boards, script AI and animatic export work without a GPU |
-| 6–11 GB | `stills-lite` | **Z-Image Turbo** (`z-image-turbo`) | — | ~12.2 GB | Apache 2.0 | ~15–20 s per 1024² still (RTX 4060, with offloading at 6–8 GB) |
-| 12–15 GB | `stills` | **Z-Image Turbo** (`z-image-turbo`) | **Wan 2.2 5B** (`wan22-ti2v-5b`) | ~12.2 GB + ~18.1 GB | Apache 2.0 | stills under 10 s (RTX 3060 12 GB) |
-| 16–23 GB | `stills-hd` | **Krea 2** (`krea2-basic`) | **Wan 2.2 5B** (`wan22-ti2v-5b`) | ~19.1 GB + ~18.1 GB | Krea 2 Community (see notice) | ~13 s per 1024² still at 8 steps (RTX 3090) |
-| 24 GB+ | `studio` | **Qwen-Image 2512** (`qwen-image-2512`) | **Wan 2.2 14B** (`wan22-i2v-14b`) | ~30.9 GB + ~38.0 GB | Apache 2.0 | stills ~34–55 s with the Lightning LoRA (RTX 4090D, official Comfy numbers) |
+| VRAM | Tier | Recommended stills engine | Recommended video engine | Downloads | License | Measured speed | Character training |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| under 6 GB | `board` | — | — | — | — | boards, script AI and animatic export work without a GPU | — |
+| 6–11 GB | `stills-lite` | **Z-Image Turbo** (`z-image-turbo`) | — | ~12.2 GB | Apache 2.0 | ~15–20 s per 1024² still (RTX 4060, with offloading at 6–8 GB) | not established — import ready-made LoRAs (Civitai carries 5k+ Z-Image character LoRAs) |
+| 12–15 GB | `stills` | **Z-Image Turbo** (`z-image-turbo`) | **Wan 2.2 5B** (`wan22-ti2v-5b`) | ~12.2 GB + ~18.1 GB | Apache 2.0 | stills under 10 s (RTX 3060 12 GB) | **Z-Image** ~1–2 h (2000 steps, 512/768 buckets — community-proven on RTX 3060-class) |
+| 16–23 GB | `stills-hd` | **Krea 2** (`krea2-basic`) | **Wan 2.2 5B** (`wan22-ti2v-5b`) | ~19.1 GB + ~18.1 GB | Krea 2 Community (see notice) | ~13 s per 1024² still at 8 steps (RTX 3090) | **Z-Image** ~1–2 h (2000 steps); Krea 2 training wants 24 GB |
+| 24 GB+ | `studio` | **Qwen-Image 2512** (`qwen-image-2512`) | **Wan 2.2 14B** (`wan22-i2v-14b`) | ~30.9 GB + ~38.0 GB | Apache 2.0 | stills ~34–55 s with the Lightning LoRA (RTX 4090D, official Comfy numbers) | any family — **Krea 2** ~2.5–4 h (3000 steps) or **Z-Image** ~1–2 h; Qwen-Image experimental |
 
 Notes the table can't hold:
 
@@ -38,7 +38,12 @@ Notes the table can't hold:
   the shipped pack bakes the official lightx2v 4-step LoRAs, which cut the
   step count 20 → 4 (toggle them off in Settings to run the slow path — then
   raise steps to 20 and cfg to 3.5).
-- **Character training** wants a 24 GB-class card regardless of tier.
+- **Character training is family-bound and tiered** (see the Training column
+  and [TRAINING.md](TRAINING.md#model-families)): a trained LoRA only works on
+  the model family it was trained for, training targets your default image
+  engine's family, and the proven recipes are Z-Image from 12 GB-class cards
+  (~1–2 h) and Krea 2 from 24 GB-class (~2.5–4 h). Below 12 GB, import
+  ready-made LoRAs instead of training.
 - Licensing philosophy: recommendations are **safe-by-default** — Apache 2.0
   wherever a tier has an Apache winner. Engines with license caveats stay
   available but wear a visible notice (`license_note`) in Settings and the
