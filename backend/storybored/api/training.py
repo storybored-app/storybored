@@ -31,6 +31,7 @@ from storybored.db import get_session
 from storybored.engine import registry
 from storybored.engine.families import DEFAULT_TRAINING_FAMILY, pack_family
 from storybored.models import Character, Job
+from storybored.settings_store import effective_setting
 from storybored.training import fetch
 from storybored.training.lora_factory import (
     TrainerNotConfigured,
@@ -97,8 +98,6 @@ def _training_family(session: Session, settings: Settings) -> str:
     ("krea2" — the historical behavior: every pre-family lora-factory run
     produced a Krea 2 LoRA).
     """
-    from storybored.api.settings_api import effective_setting
-
     packs = registry.load_packs(settings)
     workflow_id = effective_setting(session, settings, "default_image_workflow")
     if not workflow_id:

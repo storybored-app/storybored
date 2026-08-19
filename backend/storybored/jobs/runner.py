@@ -26,6 +26,7 @@ from storybored.config import Settings
 from storybored.events import EventBus
 from storybored.jobs.registry import get_handler
 from storybored.models import Job, Shot, Take
+from storybored.settings_store import effective_setting
 
 log = logging.getLogger("storybored.jobs")
 
@@ -450,10 +451,6 @@ class JobRunner:
         """The ComfyUI URL jobs actually run against: DB override wins over env
         (same resolution as the engine handlers and /api/health — a URL set
         only in the Settings UI must gate job submission too)."""
-        # lazy import: api.settings_api pulls in FastAPI routing; keep the
-        # runner importable without it at module load.
-        from storybored.api.settings_api import effective_setting
-
         with self.session_factory() as session:
             return effective_setting(session, self.settings, "comfyui_url")
 

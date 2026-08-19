@@ -1,21 +1,21 @@
 """Shot endpoints: CRUD, reorder (incl. cross-scene moves), takes listing,
 pick, approve/unapprove. @mentions in the description refresh shotcharacter."""
 
-import re
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from sqlmodel import Session, select
 
 from storybored.api.projects import take_file_paths, touch_project, unlink_data_files
 from storybored.api.scenes import get_scene_or_404
+
+# Re-exported for backward compatibility — casting logic lives in
+# storybored.casting (shared with breakdown, archive import, and the engine).
+from storybored.casting import MENTION_RE, refresh_shot_characters  # noqa: F401
 from storybored.db import get_session
-from storybored.models import Character, Shot, ShotCharacter, Take
+from storybored.models import Shot, ShotCharacter, Take
 from storybored.schemas import ShotCreate, ShotReorder, ShotUpdate
 
 router = APIRouter(prefix="/api", tags=["shots"])
-
-MENTION_RE = re.compile(r"@([A-Za-z0-9_\-]+)")
 
 
 def get_shot_or_404(session: Session, shot_id: int) -> Shot:
@@ -27,30 +27,6 @@ def get_shot_or_404(session: Session, shot_id: int) -> Shot:
 
 def _publish_shot(request: Request, shot: Shot) -> None:
     request.app.state.bus.publish("shot", jsonable_encoder(shot))
-
-
-def refresh_shot_characters(session: Session, shot: Shot) -> None:
-    """Sync the shotcharacter link table from @handle mentions in the description.
-
-    Mentions are lowercased before matching because handles are stored lowercase
-    (aligns with the engine's lowercase-only MENTION_RE), so ``@TestChar`` casts
-    the same character as ``@testchar``."""
-    handles = {m.lower() for m in MENTION_RE.findall(shot.description or "")}
-    matched_ids: set[int] = set()
-    if handles:
-        chars = session.exec(
-            select(Character).where(Character.handle.in_(handles))  # type: ignore[attr-defined]
-        ).all()
-        matched_ids = {c.id for c in chars if c.id is not None}
-    existing = session.exec(
-        select(ShotCharacter).where(ShotCharacter.shot_id == shot.id)
-    ).all()
-    for link in existing:
-        if link.character_id not in matched_ids:
-            session.delete(link)
-    existing_ids = {link.character_id for link in existing}
-    for cid in matched_ids - existing_ids:
-        session.add(ShotCharacter(shot_id=shot.id, character_id=cid))
 
 
 @router.post("/scenes/{scene_id}/shots", status_code=201)

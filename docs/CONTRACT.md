@@ -28,8 +28,10 @@ storybored/
       db.py  models.py        # SQLModel engine + tables
       schemas.py              # API request/response pydantic models
       events.py               # in-process pub/sub + SSE endpoint /api/events
+      settings_store.py       # DB-override-over-env setting resolution (no FastAPI imports)
+      casting.py              # @mention → shotcharacter link-table sync
       api/                    # routers: projects.py scenes.py shots.py characters.py
-                              #   jobs.py breakdown.py export.py settings_api.py
+                              #   jobs.py breakdown.py render.py settings_api.py
                               #   workflows_api.py training.py health.py media.py
                               #   lifecycle.py (.storybored export/import/download)
       engine/                 # comfy_client.py graph.py registry.py image.py video.py

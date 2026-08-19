@@ -18,10 +18,10 @@ from pathlib import Path
 
 import httpx
 
-from storybored.api.settings_api import effective_setting
 from storybored.engine.comfy_client import clear_object_info_cache
 from storybored.jobs.registry import register
 from storybored.jobs.runner import JobCancelled
+from storybored.settings_store import effective_setting
 
 CHUNK_BYTES = 1 << 20  # 1 MiB
 #: progress writes hit the DB + SSE — only update every this many bytes

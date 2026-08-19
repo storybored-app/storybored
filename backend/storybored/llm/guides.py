@@ -13,9 +13,9 @@ generic one.
 
 from sqlmodel import Session
 
-from storybored.api.settings_api import effective_setting
 from storybored.config import Settings
 from storybored.engine import registry
+from storybored.settings_store import effective_setting
 
 
 def resolve_prompt_guide(

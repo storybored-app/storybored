@@ -30,13 +30,13 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.concurrency import run_in_threadpool
 from sqlmodel import Session
 
-from storybored.api.settings_api import effective_setting
 from storybored.config import Settings
 from storybored.db import get_session
 from storybored.engine import catalog
 from storybored.engine.comfy_client import ComfyClient
 from storybored.engine.registry import load_packs, pack_availability
 from storybored.llm.client import LLMNotConfiguredError, get_llm_config
+from storybored.settings_store import effective_setting
 
 router = APIRouter(prefix="/api", tags=["health"])
 

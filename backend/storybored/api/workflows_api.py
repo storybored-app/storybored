@@ -20,7 +20,6 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from storybored.api.settings_api import effective_setting
 from storybored.db import get_session
 from storybored.engine import registry
 from storybored.engine.analyze import analyze_graph, is_api_format, is_ui_format
@@ -34,6 +33,7 @@ from storybored.engine.graph import (
 )
 from storybored.engine.validate import validate_pack, write_required_models
 from storybored.models import Job
+from storybored.settings_store import effective_setting
 
 router = APIRouter(prefix="/api", tags=["workflows"])
 

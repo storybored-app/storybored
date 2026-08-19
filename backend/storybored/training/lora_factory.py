@@ -38,11 +38,11 @@ from pathlib import Path
 
 from sqlmodel import Session
 
-from storybored.api.settings_api import effective_setting
 from storybored.config import Settings
 from storybored.jobs.registry import register
 from storybored.jobs.runner import JobCancelled
 from storybored.models import Character, Job
+from storybored.settings_store import effective_setting
 
 log = logging.getLogger("storybored.training")
 
@@ -414,7 +414,6 @@ def _shootout_engine_env(session, settings) -> dict[str, str]:
     """Resolve the app's default image engine and build compare.py's env from
     it, so the shootout renders through the same chain the app renders with.
     Empty dict → compare.py falls back to its standalone-CLI defaults."""
-    from storybored.api.settings_api import effective_setting
     from storybored.engine import registry
 
     packs = registry.load_packs(settings)

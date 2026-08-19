@@ -17,8 +17,7 @@ from fastapi.encoders import jsonable_encoder
 from PIL import Image
 from sqlmodel import select
 
-from storybored.api.settings_api import effective_setting
-from storybored.api.shots import refresh_shot_characters
+from storybored.casting import refresh_shot_characters
 from storybored.engine import registry
 from storybored.engine.comfy_client import ComfyCancelled, ComfyClient, ComfyError
 from storybored.engine.graph import (
@@ -40,6 +39,7 @@ from storybored.engine.graph import (
 from storybored.jobs.registry import register
 from storybored.jobs.runner import JobCancelled
 from storybored.models import Character, Project, Scene, Shot, Take
+from storybored.settings_store import effective_setting
 
 THUMB_PX = 384
 SEED_MAX = 2**32

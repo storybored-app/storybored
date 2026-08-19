@@ -46,9 +46,11 @@ storybored/
 │   │   ├── models.py            # tables: project scene shot character shotcharacter take job setting
 │   │   ├── schemas.py           # API request/response models
 │   │   ├── events.py            # in-process pub/sub + SSE endpoint /api/events
+│   │   ├── settings_store.py    # DB-override-over-env setting resolution (import-light, no FastAPI)
+│   │   ├── casting.py           # @mention → shotcharacter sync, shared by api/engine/import
 │   │   ├── api/                 # one router per resource, all under /api
 │   │   │   ├── projects.py scenes.py shots.py characters.py
-│   │   │   ├── jobs.py generate.py breakdown.py export.py settings_api.py
+│   │   │   ├── jobs.py generate.py breakdown.py render.py settings_api.py
 │   │   │   ├── workflows_api.py training.py health.py media.py
 │   │   │   ├── lifecycle.py     # .storybored archive export/import/download
 │   │   │   └── preflight.py     # shared availability gate for the generate endpoints

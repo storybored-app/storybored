@@ -31,7 +31,7 @@ from fastapi.encoders import jsonable_encoder
 from sqlmodel import Session, select
 
 from storybored.api.projects import board_payload
-from storybored.api.shots import MENTION_RE, refresh_shot_characters
+from storybored.casting import MENTION_RE, refresh_shot_characters
 from storybored.config import Settings
 from storybored.engine import registry
 from storybored.jobs.registry import register

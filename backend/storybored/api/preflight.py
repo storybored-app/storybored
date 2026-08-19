@@ -13,13 +13,13 @@ instead of a cryptic engine error minutes later.
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from storybored.api.settings_api import effective_setting
 from storybored.config import Settings
 from storybored.engine import families, registry
 from storybored.engine.comfy_client import ComfyClient
 from storybored.engine.graph import parse_engine_loras, parse_engine_models
 from storybored.engine.registry import WorkflowPack
 from storybored.models import Character, ShotCharacter
+from storybored.settings_store import effective_setting
 
 
 def resolve_pack(

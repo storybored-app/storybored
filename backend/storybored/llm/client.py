@@ -11,8 +11,8 @@ from dataclasses import dataclass
 import httpx
 from sqlmodel import Session
 
-from storybored.api.settings_api import effective_setting, resolve_setting
 from storybored.config import Settings
+from storybored.settings_store import effective_setting, resolve_setting
 
 #: generous default — local models can be slow on long scripts
 DEFAULT_TIMEOUT = 300.0

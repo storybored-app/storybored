@@ -16,7 +16,6 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from storybored.api.preflight import require_pack_available, resolve_pack
-from storybored.api.settings_api import effective_setting
 from storybored.db import get_session
 from storybored.engine import families, registry
 from storybored.engine.comfy_client import ComfyClient, ComfyError
@@ -24,6 +23,7 @@ from storybored.llm.client import LLMError, LLMNotConfiguredError, get_llm_confi
 from storybored.llm.guides import resolve_prompt_guide
 from storybored.llm.portrait import build_portrait_notes, generate_portrait_prompt
 from storybored.models import Character, ShotCharacter
+from storybored.settings_store import effective_setting
 
 router = APIRouter(prefix="/api", tags=["characters"])
 

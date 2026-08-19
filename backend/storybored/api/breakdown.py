@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from storybored.api.projects import get_project_or_404, touch_project
-from storybored.api.shots import MENTION_RE, refresh_shot_characters
+from storybored.casting import MENTION_RE, refresh_shot_characters
 from storybored.config import Settings
 from storybored.db import get_session
 from storybored.llm.breakdown import BreakdownDraft, breakdown_script

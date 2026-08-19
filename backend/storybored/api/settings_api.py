@@ -15,6 +15,13 @@ from storybored.engine.comfy_client import clear_object_info_cache
 from storybored.models import Setting
 from storybored.schemas import SettingsUpdate
 
+# Re-exported for backward compatibility — resolution logic lives in
+# storybored.settings_store (import-light home for non-API consumers).
+from storybored.settings_store import (  # noqa: F401
+    effective_setting,
+    resolve_setting,
+)
+
 router = APIRouter(prefix="/api", tags=["settings"])
 
 #: env-backed keys that may be overridden at runtime via the setting table
@@ -121,24 +128,6 @@ def _validate_engine_models(raw: str) -> None:
 def _is_secret_key(key: str) -> bool:
     """Keys whose values must never be returned (API keys, tokens, secrets)."""
     return key == "llm_api_key" or key.endswith(("_key", "_token", "_secret"))
-
-
-def resolve_setting(
-    session: Session, settings: Settings, key: str
-) -> tuple[str, str]:
-    """Return (value, source) — source is 'override' (DB), 'env', or 'unset'."""
-    row = session.get(Setting, key)
-    if row is not None and row.value:
-        return row.value, "override"
-    env_val = str(getattr(settings, key, "") or "")
-    if env_val:
-        return env_val, "env"
-    return "", "unset"
-
-
-def effective_setting(session: Session, settings: Settings, key: str) -> str:
-    """DB override if present and non-empty, else env value, else ""."""
-    return resolve_setting(session, settings, key)[0]
 
 
 @router.get("/settings")

@@ -30,7 +30,6 @@ from pathlib import Path
 from fastapi.encoders import jsonable_encoder
 from sqlmodel import select
 
-from storybored.api.settings_api import effective_setting
 from storybored.engine import registry
 from storybored.engine.comfy_client import ComfyCancelled, ComfyClient, ComfyError
 from storybored.engine.graph import (
@@ -50,6 +49,7 @@ from storybored.engine.graph import (
 from storybored.jobs.registry import register
 from storybored.jobs.runner import JobCancelled
 from storybored.models import Character, Project, Scene, Shot, Take
+from storybored.settings_store import effective_setting
 
 #: video generation is slow — never cap the wait below 15 minutes (contract)
 VIDEO_TIMEOUT_S = 3600.0

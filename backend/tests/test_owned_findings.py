@@ -10,7 +10,7 @@ from pathlib import Path
 
 from sqlmodel import Session, select
 
-from storybored.api.shots import refresh_shot_characters
+from storybored.casting import refresh_shot_characters
 from storybored.engine.graph import inject_characters, parse_mentions
 from storybored.models import Character, Scene, Shot, ShotCharacter
 
