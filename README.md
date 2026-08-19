@@ -23,12 +23,7 @@ never a node graph. Write shot descriptions, generate stills, pick your favorite
 takes, approve shots, render them to video, and export the whole board as an
 animatic MP4.
 
-<!-- screenshot: board -->
-<!--
-  Replace this block with a screenshot of the Board view:
-  vertical scene sections, horizontal shot strips, status rings, job tray.
-  ![The StoryBored board](docs/img/board.png)
--->
+![The StoryBored board](docs/img/board.png)
 
 ## Features
 
@@ -72,12 +67,46 @@ animatic MP4.
 - **Graceful degradation** — no LLM configured? No trainer installed? Those
   features show a friendly "configure in Settings" hint instead of crashing.
 
-<!-- screenshot: shot-drawer -->
-<!--
-  Replace this block with a screenshot of the shot drawer:
-  description with @mention autocomplete, takes gallery, Approve button.
-  ![Shot drawer](docs/img/shot-drawer.png)
--->
+![Shot drawer](docs/img/shot-drawer.png)
+
+## See it work
+
+**Enhance** — rough notes become a render-ready prompt, in the visible editor,
+never silently:
+
+![Enhance rewriting a rough shot description](docs/img/enhance.gif)
+
+**The board filling in** — takes land on their cards live as the render queue
+works (sped up ~10×):
+
+![Board cards filling as renders finish](docs/img/board-filling.gif)
+
+**Checkpoint shootout** — after training, every saved checkpoint renders the
+same test shots, gets scored, and the winner is one click away:
+
+![Shootout ranking and one-click apply](docs/img/shootout-apply.gif)
+
+<details>
+<summary><b>More screens</b> — characters, story vibes, engines, export</summary>
+
+Your cast — every character here is a trained LoRA, generated and trained
+entirely inside StoryBored:
+
+![Characters page](docs/img/characters.png)
+
+Story vibes mode — freeform prose in, a render-ready board out:
+
+![Story vibes](docs/img/script-vibes.png)
+
+Engines are drop-in packs with honest, per-machine speed and VRAM-fit labels:
+
+![Engines settings](docs/img/settings-engines.png)
+
+Export — approved shots line up for video renders and a single-MP4 animatic:
+
+![Export page](docs/img/export.png)
+
+</details>
 
 ## Quickstart
 
