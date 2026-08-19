@@ -337,6 +337,7 @@ exports and any engine packs you installed yourself.
 
 ## Going further
 
+- **Questions & healthy skepticism** — [docs/FAQ.md](docs/FAQ.md)
 - **Get the model files a pack needs** — [docs/MODELS.md](docs/MODELS.md)
 - **Author your own engine pack** — [docs/WORKFLOWS.md](docs/WORKFLOWS.md)
 - **Train a character from photos** — [docs/TRAINING.md](docs/TRAINING.md)
